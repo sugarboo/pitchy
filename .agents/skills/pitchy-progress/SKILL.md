@@ -13,15 +13,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 - Last updated: `2026-07-22`
 - Current milestone: `M1`
-- Current backlog item: `VT-003`
+- Current backlog item: `VT-004`
 - Current state: `pending`
 - Recommended route: `audio-thread`
 
 ## Current handoff
 
-M0 is complete. The repository now has a Node 24 / pnpm 11 Vite, React, and TypeScript foundation; Biome, Vitest unit and browser projects, Playwright E2E, CI, a prompt-based PWA shell, responsive light/dark UI, persisted Simplified Chinese/English preferences, and browser capability detection. `pitchy-router` and this progress skill are valid repository skills under `.agents/skills`.
+VT-003 is complete. `src/audio/audio-types.ts` now owns the required `AppErrorCode` union and causal `AppError`; `src/audio/media-devices.ts` owns the ideal microphone constraints, secure-context guard, bound browser API calls, conservative permission/error mapping, and stream-track cleanup. The M1 welcome UI requests access only after an explicit click, stores only an error code, retranslates it when locale changes, and immediately stops tracks returned by the permission probe. Unit, Chromium component, and production-preview E2E tests cover denial, dismissed prompts, missing/unavailable devices, explicit-click gating, retries, and cleanup after unmount.
 
-Resume with VT-003 only. Mark it `in-progress`, then implement the microphone permission boundary and the `AppErrorCode` mapping without starting AudioContext work from VT-004. Keep user-facing errors in the typed locale dictionaries and add deterministic tests for denied, dismissed, missing-device, and unsupported-browser paths. No microphone behavior has been verified yet.
+Resume with VT-004 only. Mark it `in-progress`, then implement `src/audio/audio-engine.ts` as an injected, non-React AudioContext lifecycle controller. Create or resume the context only from the existing user action, define the documented engine-status transitions, retain and release the granted stream safely, handle `statechange`, suspension, stop, and partial-start failures, and add deterministic lifecycle tests. Do not add AudioWorklet framing from VT-005 yet. Real microphone hardware and OS permission UI remain unverified.
 
 First command: `pnpm skills:route`
 
@@ -31,8 +31,8 @@ First command: `pnpm skills:route`
 | --- | --- | --- |
 | VT-001 | complete | Frozen install and the full M0 handoff chain pass; project scripts, CI, PWA shell, responsive theme/locale UI, and artifact-size budget are present. |
 | VT-002 | complete | Pure capability detection has unit coverage and is exercised through browser/E2E rendering without initiating permission requests. |
-| VT-003 | pending | Implement microphone permission flow and actionable error mapping; add deterministic boundary tests. |
-| VT-004 | pending | Implement AudioContext lifecycle after user gesture. |
+| VT-003 | complete | Permission requests are explicit-click only; standard/legacy failures map to actionable codes, probe tracks are released, and unit/browser/E2E tests pass. |
+| VT-004 | pending | Implement the injected AudioContext lifecycle and cleanup without adding Worklet behavior. |
 | VT-005 | pending | Implement AudioWorklet PCM framing. |
 | VT-006 | pending | Add Worker protocol and transferable buffers. |
 | VT-007 | pending | Add RMS and approximate dBFS. |
@@ -61,13 +61,13 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 26 files with no fixes required. |
+| `pnpm check` | pass | Biome checked 29 files with no fixes required. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 2 unit files, 7 tests. |
-| `pnpm test:browser` | pass | 1 browser file, 2 Chromium tests. |
-| `pnpm build` | pass | Vite production build and generated Service Worker completed; 8 entries / 217.46 KiB precached. |
-| `pnpm test:e2e` | pass | 3 Chromium tests cover the local-only shell, manifest, and persisted theme/language choices. |
-| `pnpm check:size` | pass | Compressed app shell is 74.7 KiB of the 500 KiB budget. |
+| `pnpm test` | pass | 3 unit files, 20 tests. |
+| `pnpm test:browser` | pass | 1 browser file, 5 Chromium tests. |
+| `pnpm build` | pass | Vite production build and generated Service Worker completed; 8 entries / 225.71 KiB precached. |
+| `pnpm test:e2e` | pass | 4 Chromium tests cover the local-only shell, manifest, persisted UI preferences, and an explicit-click permission denial. |
+| `pnpm check:size` | pass | Compressed app shell is 77.3 KiB of the 500 KiB budget. |
 
 ## Durable decisions
 
@@ -78,10 +78,14 @@ First command: `pnpm skills:route`
 - Use typed local `zh-CN` and `en` dictionaries with explicit UI controls. Persist the M0 theme/locale preference in namespaced localStorage, then migrate it behind the same preference boundary when Dexie arrives in VT-021.
 - Keep `workbox-window` as an explicit runtime dependency for the React update prompt; it communicates only with the same-origin Service Worker.
 - Start the Vite preview server through Playwright global setup so E2E teardown closes in-process and exits reliably on Windows.
+- Keep microphone permission and hardware failures as stable `AppErrorCode` values; translate codes at render time so locale changes never require repeating a browser request.
+- Treat a post-failure `prompt` permission state as the best available signal for a dismissed prompt. When permission state is unavailable, map `NotAllowedError` conservatively to `permission-denied` because the platform exposes no distinct dismissal result.
+- Stop every track returned by the VT-003 permission probe immediately. VT-004 will transfer stream ownership to the audio engine only after its lifecycle and cleanup contract exists.
 
 ## Known risks
 
-- No real microphone, AudioContext, AudioWorklet, Worker, DSP, storage database, offline-reopen, or real-device behavior has been implemented or claimed.
+- The permission path is covered with deterministic fakes and a production-preview browser test, but no real microphone hardware or OS/browser permission UI has been verified.
+- No AudioContext, AudioWorklet, Worker, DSP, storage database, offline-reopen, or real-device lifecycle behavior has been implemented or claimed.
 - PWA manifest generation and the update prompt build are covered, but installability, offline reopen, and update activation remain VT-023/VT-024 acceptance work.
 - The PWA currently uses one SVG icon; platform-specific PNG icon QA remains for the release milestone.
 - Automated browser evidence is Chromium-only on this machine; Safari, Firefox, mobile browsers, and manual visual/accessibility QA remain unverified.

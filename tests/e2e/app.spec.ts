@@ -15,7 +15,7 @@ test("loads the local-first application shell without third-party requests", asy
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("听见每一次发声的变化");
   await expect(page.getByText("原始音频默认不保存，也不上传。", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: /开始练声/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /开始练声/ })).toBeVisible();
   expect(thirdPartyRequests).toEqual([]);
 });
 
@@ -55,4 +55,36 @@ test("persists explicit theme and language choices across reloads", async ({ pag
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("button", { name: "Switch to Simplified Chinese" })).toBeVisible();
+});
+
+test("requests microphone access only after a click and explains a denial", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(window, "AudioContext", { configurable: true, value: class {} });
+    Object.defineProperty(window, "AudioWorkletNode", { configurable: true, value: class {} });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          throw new DOMException("Permission denied", "NotAllowedError");
+        },
+      },
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: { query: async () => ({ state: "denied" }) },
+    });
+  });
+
+  await page.goto("/");
+
+  const startButton = page.getByRole("button", { name: /开始练声/ });
+  await expect(startButton).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await startButton.click();
+
+  await expect(page.getByRole("alert")).toContainText("麦克风权限已被拒绝");
+  await expect(page.getByRole("alert")).toContainText("网站设置中允许麦克风");
+  await expect(page.getByRole("button", { name: /重新请求权限/ })).toBeEnabled();
 });

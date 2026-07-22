@@ -1,16 +1,40 @@
-import { useState } from "react";
-import { detectBrowserCapabilities } from "./browser-capabilities";
+import { useEffect, useRef, useState } from "react";
+import { type AppErrorCode, toAppError } from "../audio/audio-types";
+import { requestMicrophoneAccess, stopMediaStream } from "../audio/media-devices";
+import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
 
 const DELIVERY_STAGES = [
-  { id: "M0", label: "foundation", state: "active" },
-  { id: "M1", label: "audio", state: "pending" },
+  { id: "M0", label: "foundation", state: "complete" },
+  { id: "M1", label: "audio", state: "active" },
   { id: "M2", label: "pitch", state: "pending" },
 ] as const;
 
-export function App() {
-  const [support] = useState(() => detectBrowserCapabilities());
+type MicrophoneRequestState =
+  | { status: "idle" }
+  | { status: "requesting" }
+  | { status: "ready" }
+  | { status: "error"; code: AppErrorCode };
+
+export type MicrophoneRequester = () => Promise<MediaStream>;
+
+export interface AppProps {
+  supportOverride?: BrowserSupportSnapshot;
+  requestMicrophone?: MicrophoneRequester;
+}
+
+export function App({
+  supportOverride,
+  requestMicrophone = requestMicrophoneAccess,
+}: AppProps = {}) {
+  const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
+  const [microphoneState, setMicrophoneState] = useState<MicrophoneRequestState>({
+    status: "idle",
+  });
+  const isMounted = useRef(false);
+  const requestSequence = useRef(0);
+  const requestInFlight = useRef(false);
   const { locale, setLocale, theme, setTheme } = usePreferences();
   const messages = getMessages(locale);
   const unavailableMessage = support.missingRequiredIds
@@ -18,6 +42,53 @@ export function App() {
     .join(locale === "zh-CN" ? "、" : ", ");
   const nextTheme = theme === "dark" ? "light" : "dark";
   const nextLocale = locale === "zh-CN" ? "en" : "zh-CN";
+  const microphoneError =
+    microphoneState.status === "error" ? messages.errorMessages[microphoneState.code] : null;
+  const isRequesting = microphoneState.status === "requesting";
+  const isReady = microphoneState.status === "ready";
+  const primaryButtonLabel =
+    microphoneState.status === "error" ? messages.retryMicrophone : messages.startPractice;
+  const primaryButtonDetail = isRequesting
+    ? messages.requestingMicrophone
+    : isReady
+      ? messages.microphoneReady
+      : messages.startPracticePending;
+
+  useEffect(() => {
+    isMounted.current = true;
+
+    return () => {
+      isMounted.current = false;
+      requestSequence.current += 1;
+    };
+  }, []);
+
+  async function handleMicrophoneRequest(): Promise<void> {
+    if (!support.canStartPractice || requestInFlight.current || isReady) {
+      return;
+    }
+
+    requestInFlight.current = true;
+    const currentRequest = ++requestSequence.current;
+    setMicrophoneState({ status: "requesting" });
+
+    try {
+      const stream = await requestMicrophone();
+      stopMediaStream(stream);
+
+      if (isMounted.current && currentRequest === requestSequence.current) {
+        setMicrophoneState({ status: "ready" });
+      }
+    } catch (error) {
+      if (isMounted.current && currentRequest === requestSequence.current) {
+        setMicrophoneState({ status: "error", code: toAppError(error).code });
+      }
+    } finally {
+      if (currentRequest === requestSequence.current) {
+        requestInFlight.current = false;
+      }
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -50,7 +121,7 @@ export function App() {
               <span lang={nextLocale}>{nextLocale === "en" ? "EN" : "中文"}</span>
             </button>
           </fieldset>
-          <span className="phase-badge">v0.1 · M0</span>
+          <span className="phase-badge">v0.1 · M1</span>
         </div>
       </header>
 
@@ -61,10 +132,34 @@ export function App() {
           <p className="hero-description">{messages.heroDescription}</p>
 
           <div className="hero-actions">
-            <button className="primary-button" type="button" disabled>
-              {messages.startPractice}
-              <span>{messages.startPracticePending}</span>
-            </button>
+            <div className="microphone-action">
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!support.canStartPractice || isRequesting || isReady}
+                aria-describedby="microphone-feedback"
+                onClick={() => void handleMicrophoneRequest()}
+              >
+                {primaryButtonLabel}
+                <span>{primaryButtonDetail}</span>
+              </button>
+
+              <div id="microphone-feedback" className="microphone-feedback" aria-live="polite">
+                {isReady && (
+                  <p className="permission-feedback is-ready" role="status">
+                    <strong>{messages.microphoneReady}</strong>
+                    <span>{messages.microphoneReadyDetail}</span>
+                  </p>
+                )}
+                {microphoneError && (
+                  <p className="permission-feedback is-error" role="alert">
+                    <strong>{microphoneError.title}</strong>
+                    <span>{microphoneError.detail}</span>
+                    <span>{microphoneError.action}</span>
+                  </p>
+                )}
+              </div>
+            </div>
             <p className="privacy-note">
               <span aria-hidden="true">●</span>
               {messages.microphonePermissionNote}
@@ -137,7 +232,7 @@ export function App() {
 
           <ol className="stage-list">
             {DELIVERY_STAGES.map((stage) => (
-              <li key={stage.id} className={stage.state === "active" ? "is-active" : undefined}>
+              <li key={stage.id} className={`is-${stage.state}`}>
                 <span className="stage-id">{stage.id}</span>
                 <span className="stage-label">{messages.stages[stage.label]}</span>
                 <span className="stage-status">{messages.stageStates[stage.state]}</span>

@@ -1,6 +1,13 @@
+import type { AppErrorCode } from "../audio/audio-types";
 import type { BrowserCapabilityId } from "./browser-capabilities";
 
 export type Locale = "zh-CN" | "en";
+
+export interface ErrorMessage {
+  title: string;
+  detail: string;
+  action: string;
+}
 
 export interface Messages {
   documentTitle: string;
@@ -18,6 +25,10 @@ export interface Messages {
   heroDescription: string;
   startPractice: string;
   startPracticePending: string;
+  requestingMicrophone: string;
+  microphoneReady: string;
+  microphoneReadyDetail: string;
+  retryMicrophone: string;
   microphonePermissionNote: string;
   readoutPreviewLabel: string;
   liveReadout: string;
@@ -34,7 +45,7 @@ export interface Messages {
   progressEyebrow: string;
   sliceHeading: string;
   stages: Record<"foundation" | "audio" | "pitch", string>;
-  stageStates: Record<"active" | "pending", string>;
+  stageStates: Record<"complete" | "active" | "pending", string>;
   scopeNote: string;
   medicalDisclaimer: string;
   privacyFooter: string;
@@ -43,6 +54,7 @@ export interface Messages {
   updateAndReload: string;
   later: string;
   capabilityLabels: Record<BrowserCapabilityId, string>;
+  errorMessages: Record<AppErrorCode, ErrorMessage>;
 }
 
 const zhCn: Messages = {
@@ -61,7 +73,11 @@ const zhCn: Messages = {
   heroDescription:
     "Pitchy 将在浏览器本地分析音高、音分偏差、输入电平和长音稳定度。原始音频默认不保存，也不上传。",
   startPractice: "开始练声",
-  startPracticePending: "将在 M1 接入音频链路",
+  startPracticePending: "先确认麦克风权限",
+  requestingMicrophone: "正在等待麦克风授权",
+  microphoneReady: "麦克风权限已确认",
+  microphoneReadyDetail: "权限探测使用的轨道已停止，尚未开始音频分析。",
+  retryMicrophone: "重新请求权限",
   microphonePermissionNote: "麦克风权限只会由你的明确点击触发",
   readoutPreviewLabel: "实时读数界面预览",
   liveReadout: "实时读数",
@@ -84,10 +100,11 @@ const zhCn: Messages = {
     pitch: "YIN 音高引擎",
   },
   stageStates: {
+    complete: "已完成",
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "当前只交付工程与界面骨架。音高读数、练习报告和历史记录会按依赖顺序逐步接入。",
+  scopeNote: "当前正在接入麦克风权限边界；AudioContext、音高读数和练习报告仍会按依赖顺序逐步接入。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -102,6 +119,58 @@ const zhCn: Messages = {
     "web-worker": "Web Worker",
     "indexed-db": "本地数据存储",
     "service-worker": "离线应用能力",
+  },
+  errorMessages: {
+    "unsupported-browser": {
+      title: "当前环境无法请求麦克风",
+      detail: "麦克风访问需要受支持的现代浏览器和安全上下文。",
+      action: "请使用最新版浏览器，并通过 HTTPS 或 localhost 打开。",
+    },
+    "permission-denied": {
+      title: "麦克风权限已被拒绝",
+      detail: "Pitchy 无法在没有麦克风权限时开始练声。",
+      action: "请在浏览器的网站设置中允许麦克风，然后重试。",
+    },
+    "permission-dismissed": {
+      title: "尚未完成麦克风授权",
+      detail: "浏览器仍显示为待询问，授权提示可能被关闭或尚未完成选择。",
+      action: "准备好后再次点击，并在浏览器提示中选择允许。",
+    },
+    "device-not-found": {
+      title: "没有找到可用麦克风",
+      detail: "浏览器没有检测到符合请求条件的音频输入设备。",
+      action: "请连接或启用麦克风，然后重试。",
+    },
+    "device-disconnected": {
+      title: "麦克风当前不可用",
+      detail: "设备可能已断开、被系统停用，或正被其他程序独占。",
+      action: "请重新连接或释放麦克风，然后重试。",
+    },
+    "audio-context-failed": {
+      title: "无法启动音频环境",
+      detail: "浏览器未能创建或恢复本地音频处理环境。",
+      action: "请再次点击开始；若仍失败，请重新加载页面。",
+    },
+    "worklet-load-failed": {
+      title: "无法加载音频处理模块",
+      detail: "浏览器未能启动本地 AudioWorklet。",
+      action: "请重新加载页面，或改用受支持的最新版浏览器。",
+    },
+    "worker-failed": {
+      title: "音高处理线程已停止",
+      detail: "本地分析线程未能正常运行。",
+      action: "请停止本次练习并重新开始。",
+    },
+    "storage-failed": {
+      title: "无法保存本地数据",
+      detail: "浏览器拒绝或无法写入本机存储。",
+      action: "请检查隐私设置和可用空间，或继续本次练习但不保存。",
+    },
+    unknown: {
+      title: "无法访问麦克风",
+      detail: "浏览器返回了未识别的错误。",
+      action: "请重试；若仍失败，请重新加载页面并检查系统麦克风设置。",
+    },
   },
 };
 
@@ -121,7 +190,11 @@ const en: Messages = {
   heroDescription:
     "Pitchy will analyze pitch, cents deviation, input level, and sustained-note stability in your browser. Raw audio is not saved or uploaded by default.",
   startPractice: "Start practicing",
-  startPracticePending: "Audio pipeline arrives in M1",
+  startPracticePending: "Confirm microphone access first",
+  requestingMicrophone: "Waiting for microphone permission",
+  microphoneReady: "Microphone permission confirmed",
+  microphoneReadyDetail: "The probe tracks are stopped; audio analysis has not started.",
+  retryMicrophone: "Request permission again",
   microphonePermissionNote: "Microphone access will only follow an explicit click",
   readoutPreviewLabel: "Live readout interface preview",
   liveReadout: "Live readout",
@@ -144,11 +217,12 @@ const en: Messages = {
     pitch: "YIN pitch engine",
   },
   stageStates: {
+    complete: "Complete",
     active: "In progress",
     pending: "Not started",
   },
   scopeNote:
-    "This stage only delivers the project and interface foundation. Pitch readings, summaries, and history will follow dependency order.",
+    "The microphone permission boundary is now in progress. AudioContext, pitch readings, and summaries will follow dependency order.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",
@@ -164,6 +238,58 @@ const en: Messages = {
     "web-worker": "Web Worker",
     "indexed-db": "Local data storage",
     "service-worker": "Offline app support",
+  },
+  errorMessages: {
+    "unsupported-browser": {
+      title: "This environment cannot request a microphone",
+      detail: "Microphone access requires a supported modern browser in a secure context.",
+      action: "Use an up-to-date browser over HTTPS or localhost.",
+    },
+    "permission-denied": {
+      title: "Microphone permission was denied",
+      detail: "Pitchy cannot start practice without microphone access.",
+      action: "Allow the microphone in this site's browser settings, then try again.",
+    },
+    "permission-dismissed": {
+      title: "Microphone permission was not completed",
+      detail: "The browser still reports a prompt state, so the prompt may have been closed.",
+      action: "Try again when ready and choose Allow in the browser prompt.",
+    },
+    "device-not-found": {
+      title: "No microphone was found",
+      detail: "The browser could not find an audio input device matching the request.",
+      action: "Connect or enable a microphone, then try again.",
+    },
+    "device-disconnected": {
+      title: "The microphone is unavailable",
+      detail: "It may be disconnected, disabled by the system, or locked by another app.",
+      action: "Reconnect or release the microphone, then try again.",
+    },
+    "audio-context-failed": {
+      title: "The audio environment could not start",
+      detail: "The browser could not create or resume local audio processing.",
+      action: "Click start again; reload the page if the problem continues.",
+    },
+    "worklet-load-failed": {
+      title: "The audio processor could not load",
+      detail: "The browser could not start the local AudioWorklet.",
+      action: "Reload the page or use an up-to-date supported browser.",
+    },
+    "worker-failed": {
+      title: "The pitch processing thread stopped",
+      detail: "The local analysis worker could not continue.",
+      action: "Stop this practice session and start again.",
+    },
+    "storage-failed": {
+      title: "Local data could not be saved",
+      detail: "The browser denied or failed to write on-device storage.",
+      action: "Check privacy settings and free space, or continue without saving.",
+    },
+    unknown: {
+      title: "The microphone could not be accessed",
+      detail: "The browser returned an unrecognized error.",
+      action: "Try again; if it persists, reload and check the system microphone settings.",
+    },
   },
 };
 
