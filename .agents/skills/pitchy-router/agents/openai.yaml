@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pitchy Router"
+  short_description: "Route Pitchy work from synced repository progress"
+  default_prompt: "Use $pitchy-router to resume the next safe Pitchy development task."

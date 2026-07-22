@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pitchy">
+  <defs>
+    <linearGradient id="background" x1="56" y1="34" x2="466" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#183453" />
+      <stop offset="1" stop-color="#08111f" />
+    </linearGradient>
+    <linearGradient id="wave" x1="112" y1="330" x2="407" y2="173" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8fa9ff" />
+      <stop offset="0.52" stop-color="#62e5c2" />
+      <stop offset="1" stop-color="#b8ffe9" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)" />
+  <circle cx="256" cy="256" r="158" fill="none" stroke="#8fa9ff" stroke-opacity="0.16" stroke-width="8" />
+  <path
+    d="M104 277c34 0 35-103 71-103 38 0 41 181 80 181 42 0 45-224 86-224 36 0 35 146 70 146"
+    fill="none"
+    stroke="url(#wave)"
+    stroke-linecap="round"
+    stroke-width="28"
+  />
+  <circle cx="256" cy="355" r="19" fill="#f5f8fc" />
+</svg>

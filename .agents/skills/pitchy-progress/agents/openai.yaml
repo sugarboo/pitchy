@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pitchy Progress"
+  short_description: "Read and update the synced Pitchy handoff state"
+  default_prompt: "Use $pitchy-progress to inspect or update the current Pitchy task handoff."
