@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { type AppErrorCode, toAppError } from "../audio/audio-types";
-import { requestMicrophoneAccess, stopMediaStream } from "../audio/media-devices";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  type AudioContextFactory,
+  type AudioWorkletNodeFactory,
+  createAudioEngine,
+  type MicrophoneRequester,
+} from "../audio/audio-engine";
+import type { AudioEngineStatus } from "../audio/audio-types";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
@@ -11,30 +16,39 @@ const DELIVERY_STAGES = [
   { id: "M2", label: "pitch", state: "pending" },
 ] as const;
 
-type MicrophoneRequestState =
-  | { status: "idle" }
-  | { status: "requesting" }
-  | { status: "ready" }
-  | { status: "error"; code: AppErrorCode };
-
-export type MicrophoneRequester = () => Promise<MediaStream>;
-
 export interface AppProps {
   supportOverride?: BrowserSupportSnapshot;
   requestMicrophone?: MicrophoneRequester;
+  createAudioContext?: AudioContextFactory;
+  createAudioWorkletNode?: AudioWorkletNodeFactory;
+  workletModuleUrl?: string;
+}
+
+function reportAudioLifecycleFailure(error: unknown): void {
+  console.error("Pitchy audio lifecycle action failed.", error);
 }
 
 export function App({
   supportOverride,
-  requestMicrophone = requestMicrophoneAccess,
+  requestMicrophone,
+  createAudioContext,
+  createAudioWorkletNode,
+  workletModuleUrl,
 }: AppProps = {}) {
   const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
-  const [microphoneState, setMicrophoneState] = useState<MicrophoneRequestState>({
-    status: "idle",
-  });
-  const isMounted = useRef(false);
-  const requestSequence = useRef(0);
-  const requestInFlight = useRef(false);
+  const [audioEngine] = useState(() =>
+    createAudioEngine({
+      ...(requestMicrophone ? { requestMicrophone } : {}),
+      ...(createAudioContext ? { createAudioContext } : {}),
+      ...(createAudioWorkletNode ? { createAudioWorkletNode } : {}),
+      ...(workletModuleUrl ? { workletModuleUrl } : {}),
+    }),
+  );
+  const audioSnapshot = useSyncExternalStore(
+    audioEngine.subscribe,
+    audioEngine.getSnapshot,
+    audioEngine.getSnapshot,
+  );
   const { locale, setLocale, theme, setTheme } = usePreferences();
   const messages = getMessages(locale);
   const unavailableMessage = support.missingRequiredIds
@@ -42,51 +56,77 @@ export function App({
     .join(locale === "zh-CN" ? "、" : ", ");
   const nextTheme = theme === "dark" ? "light" : "dark";
   const nextLocale = locale === "zh-CN" ? "en" : "zh-CN";
-  const microphoneError =
-    microphoneState.status === "error" ? messages.errorMessages[microphoneState.code] : null;
-  const isRequesting = microphoneState.status === "requesting";
-  const isReady = microphoneState.status === "ready";
-  const primaryButtonLabel =
-    microphoneState.status === "error" ? messages.retryMicrophone : messages.startPractice;
-  const primaryButtonDetail = isRequesting
-    ? messages.requestingMicrophone
-    : isReady
-      ? messages.microphoneReady
-      : messages.startPracticePending;
+  const microphoneError = audioSnapshot.errorCode
+    ? messages.errorMessages[audioSnapshot.errorCode]
+    : null;
+  const isBusy =
+    audioSnapshot.status === "requesting-permission" ||
+    audioSnapshot.status === "starting" ||
+    audioSnapshot.status === "stopping";
+  const isRunning = audioSnapshot.status === "running";
+  const isSuspended = audioSnapshot.status === "suspended";
+  const isStartAction = audioSnapshot.status === "idle" || audioSnapshot.status === "error";
+  const primaryButtonLabels: Record<AudioEngineStatus, string> = {
+    idle: messages.startPractice,
+    "requesting-permission": messages.requestingMicrophone,
+    starting: messages.startingAudio,
+    running: messages.pausePractice,
+    suspended: messages.resumePractice,
+    stopping: messages.stoppingAudio,
+    error: messages.retryMicrophone,
+  };
+  const primaryButtonDetails: Record<AudioEngineStatus, string> = {
+    idle: messages.startPracticePending,
+    "requesting-permission": messages.requestingMicrophoneDetail,
+    starting: messages.startingAudioDetail,
+    running: messages.pausePracticeDetail,
+    suspended: messages.resumePracticeDetail,
+    stopping: messages.stoppingAudioDetail,
+    error: messages.retryMicrophoneDetail,
+  };
 
   useEffect(() => {
-    isMounted.current = true;
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState !== "hidden") {
+        return;
+      }
+
+      const status = audioEngine.getSnapshot().status;
+      if (status === "running") {
+        void audioEngine.suspend().catch(reportAudioLifecycleFailure);
+      } else if (status === "requesting-permission" || status === "starting") {
+        void audioEngine.stop().catch(reportAudioLifecycleFailure);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      isMounted.current = false;
-      requestSequence.current += 1;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      // StrictMode replays effect cleanup during development while retaining component state.
+      // Stop owned browser resources without permanently invalidating the retained engine.
+      void audioEngine.stop().catch(reportAudioLifecycleFailure);
     };
-  }, []);
+  }, [audioEngine]);
 
-  async function handleMicrophoneRequest(): Promise<void> {
-    if (!support.canStartPractice || requestInFlight.current || isReady) {
-      return;
-    }
-
-    requestInFlight.current = true;
-    const currentRequest = ++requestSequence.current;
-    setMicrophoneState({ status: "requesting" });
-
+  async function handlePrimaryAudioAction(): Promise<void> {
     try {
-      const stream = await requestMicrophone();
-      stopMediaStream(stream);
-
-      if (isMounted.current && currentRequest === requestSequence.current) {
-        setMicrophoneState({ status: "ready" });
+      if (audioSnapshot.status === "running") {
+        await audioEngine.suspend();
+      } else if (audioSnapshot.status === "suspended") {
+        await audioEngine.resume();
+      } else if (audioSnapshot.status === "idle" || audioSnapshot.status === "error") {
+        await audioEngine.start();
       }
     } catch (error) {
-      if (isMounted.current && currentRequest === requestSequence.current) {
-        setMicrophoneState({ status: "error", code: toAppError(error).code });
-      }
-    } finally {
-      if (currentRequest === requestSequence.current) {
-        requestInFlight.current = false;
-      }
+      reportAudioLifecycleFailure(error);
+    }
+  }
+
+  async function handleStop(): Promise<void> {
+    try {
+      await audioEngine.stop();
+    } catch (error) {
+      reportAudioLifecycleFailure(error);
     }
   }
 
@@ -133,22 +173,41 @@ export function App({
 
           <div className="hero-actions">
             <div className="microphone-action">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!support.canStartPractice || isRequesting || isReady}
-                aria-describedby="microphone-feedback"
-                onClick={() => void handleMicrophoneRequest()}
-              >
-                {primaryButtonLabel}
-                <span>{primaryButtonDetail}</span>
-              </button>
+              <div className="audio-action-buttons">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={isBusy || (isStartAction && !support.canStartPractice)}
+                  aria-busy={isBusy}
+                  aria-describedby="microphone-feedback"
+                  onClick={() => void handlePrimaryAudioAction()}
+                >
+                  {primaryButtonLabels[audioSnapshot.status]}
+                  <span>{primaryButtonDetails[audioSnapshot.status]}</span>
+                </button>
+                {(isRunning || isSuspended) && (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    aria-describedby="microphone-feedback"
+                    onClick={() => void handleStop()}
+                  >
+                    {messages.stopPractice}
+                  </button>
+                )}
+              </div>
 
               <div id="microphone-feedback" className="microphone-feedback" aria-live="polite">
-                {isReady && (
+                {isRunning && (
                   <p className="permission-feedback is-ready" role="status">
-                    <strong>{messages.microphoneReady}</strong>
-                    <span>{messages.microphoneReadyDetail}</span>
+                    <strong>{messages.audioRunning}</strong>
+                    <span>{messages.audioRunningDetail(audioSnapshot.sampleRate)}</span>
+                  </p>
+                )}
+                {isSuspended && (
+                  <p className="permission-feedback is-suspended" role="status">
+                    <strong>{messages.audioSuspended}</strong>
+                    <span>{messages.audioSuspendedDetail}</span>
                   </p>
                 )}
                 {microphoneError && (

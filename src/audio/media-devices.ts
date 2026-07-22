@@ -121,7 +121,17 @@ export async function requestMicrophoneAccess(
 }
 
 export function stopMediaStream(stream: StoppableMediaStream): void {
+  let firstError: unknown;
+
   for (const track of stream.getTracks()) {
-    track.stop();
+    try {
+      track.stop();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+
+  if (firstError !== undefined) {
+    throw firstError;
   }
 }

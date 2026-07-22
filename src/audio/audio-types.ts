@@ -10,6 +10,15 @@ export type AppErrorCode =
   | "storage-failed"
   | "unknown";
 
+export type AudioEngineStatus =
+  | "idle"
+  | "requesting-permission"
+  | "starting"
+  | "running"
+  | "suspended"
+  | "stopping"
+  | "error";
+
 export class AppError extends Error {
   readonly code: AppErrorCode;
 

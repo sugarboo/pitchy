@@ -26,9 +26,22 @@ export interface Messages {
   startPractice: string;
   startPracticePending: string;
   requestingMicrophone: string;
-  microphoneReady: string;
-  microphoneReadyDetail: string;
+  requestingMicrophoneDetail: string;
+  startingAudio: string;
+  startingAudioDetail: string;
+  pausePractice: string;
+  pausePracticeDetail: string;
+  resumePractice: string;
+  resumePracticeDetail: string;
+  stopPractice: string;
+  stoppingAudio: string;
+  stoppingAudioDetail: string;
+  audioRunning: string;
+  audioRunningDetail: (sampleRate: number | null) => string;
+  audioSuspended: string;
+  audioSuspendedDetail: string;
   retryMicrophone: string;
+  retryMicrophoneDetail: string;
   microphonePermissionNote: string;
   readoutPreviewLabel: string;
   liveReadout: string;
@@ -73,16 +86,32 @@ const zhCn: Messages = {
   heroDescription:
     "Pitchy 将在浏览器本地分析音高、音分偏差、输入电平和长音稳定度。原始音频默认不保存，也不上传。",
   startPractice: "开始练声",
-  startPracticePending: "先确认麦克风权限",
-  requestingMicrophone: "正在等待麦克风授权",
-  microphoneReady: "麦克风权限已确认",
-  microphoneReadyDetail: "权限探测使用的轨道已停止，尚未开始音频分析。",
-  retryMicrophone: "重新请求权限",
+  startPracticePending: "申请权限并在本机启动音频",
+  requestingMicrophone: "正在请求麦克风",
+  requestingMicrophoneDetail: "请在浏览器提示中完成选择",
+  startingAudio: "正在启动音频",
+  startingAudioDetail: "正在创建或恢复本地 AudioContext",
+  pausePractice: "暂停练声",
+  pausePracticeDetail: "暂时释放音频处理资源",
+  resumePractice: "恢复练声",
+  resumePracticeDetail: "需要由你的点击恢复音频",
+  stopPractice: "停止",
+  stoppingAudio: "正在停止",
+  stoppingAudioDetail: "正在关闭音频环境并释放麦克风",
+  audioRunning: "本地音频环境已启动",
+  audioRunningDetail: (sampleRate) =>
+    sampleRate === null
+      ? "实际采样率等待浏览器确认；音高分析尚未接入。"
+      : `实际采样率 ${sampleRate.toLocaleString("zh-CN")} Hz；音高分析尚未接入。`,
+  audioSuspended: "音频已暂停",
+  audioSuspendedDetail: "麦克风轨道仍由本次练习持有；请点击恢复或停止并完全释放。",
+  retryMicrophone: "重新开始",
+  retryMicrophoneDetail: "解决提示的问题后再次申请权限",
   microphonePermissionNote: "麦克风权限只会由你的明确点击触发",
   readoutPreviewLabel: "实时读数界面预览",
   liveReadout: "实时读数",
   deviceOnly: "仅本机",
-  previewCaption: "界面预览 · 尚未读取麦克风",
+  previewCaption: "界面预览 · 音高分析尚未启用",
   foundationStatusLabel: "第一阶段状态",
   runtimeEyebrow: "运行环境",
   capabilityHeading: "浏览器能力检测",
@@ -104,7 +133,8 @@ const zhCn: Messages = {
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "当前正在接入麦克风权限边界；AudioContext、音高读数和练习报告仍会按依赖顺序逐步接入。",
+  scopeNote:
+    "麦克风权限与 AudioContext 生命周期已接入；Worklet、音高读数和练习报告仍会按依赖顺序逐步接入。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -190,16 +220,33 @@ const en: Messages = {
   heroDescription:
     "Pitchy will analyze pitch, cents deviation, input level, and sustained-note stability in your browser. Raw audio is not saved or uploaded by default.",
   startPractice: "Start practicing",
-  startPracticePending: "Confirm microphone access first",
-  requestingMicrophone: "Waiting for microphone permission",
-  microphoneReady: "Microphone permission confirmed",
-  microphoneReadyDetail: "The probe tracks are stopped; audio analysis has not started.",
-  retryMicrophone: "Request permission again",
+  startPracticePending: "Request access and start local audio",
+  requestingMicrophone: "Requesting microphone",
+  requestingMicrophoneDetail: "Complete the choice in the browser prompt",
+  startingAudio: "Starting audio",
+  startingAudioDetail: "Creating or resuming the local AudioContext",
+  pausePractice: "Pause practice",
+  pausePracticeDetail: "Temporarily release audio processing resources",
+  resumePractice: "Resume practice",
+  resumePracticeDetail: "Your click is required to resume audio",
+  stopPractice: "Stop",
+  stoppingAudio: "Stopping",
+  stoppingAudioDetail: "Closing audio and releasing the microphone",
+  audioRunning: "Local audio is running",
+  audioRunningDetail: (sampleRate) =>
+    sampleRate === null
+      ? "The actual sample rate is awaiting browser confirmation; pitch analysis is not connected yet."
+      : `Actual sample rate: ${sampleRate.toLocaleString("en")} Hz; pitch analysis is not connected yet.`,
+  audioSuspended: "Audio is paused",
+  audioSuspendedDetail:
+    "This session still owns the microphone tracks; resume with a click or stop to release them fully.",
+  retryMicrophone: "Start again",
+  retryMicrophoneDetail: "Resolve the issue shown below, then request access again",
   microphonePermissionNote: "Microphone access will only follow an explicit click",
   readoutPreviewLabel: "Live readout interface preview",
   liveReadout: "Live readout",
   deviceOnly: "On-device",
-  previewCaption: "Interface preview · Microphone is not active",
+  previewCaption: "Interface preview · Pitch analysis is not enabled",
   foundationStatusLabel: "Foundation stage status",
   runtimeEyebrow: "Runtime",
   capabilityHeading: "Browser capabilities",
@@ -222,7 +269,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "The microphone permission boundary is now in progress. AudioContext, pitch readings, and summaries will follow dependency order.",
+    "Microphone permission and the AudioContext lifecycle are connected. The Worklet, pitch readings, and summaries will follow dependency order.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

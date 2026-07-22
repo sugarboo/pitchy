@@ -125,6 +125,20 @@ describe("microphone resource cleanup", () => {
     expect(secondStop).toHaveBeenCalledOnce();
   });
 
+  it("attempts every track even when one stop call fails", () => {
+    const failure = new Error("track failed to stop");
+    const firstStop = vi.fn(() => {
+      throw failure;
+    });
+    const secondStop = vi.fn();
+
+    expect(() =>
+      stopMediaStream({ getTracks: () => [{ stop: firstStop }, { stop: secondStop }] }),
+    ).toThrow(failure);
+    expect(firstStop).toHaveBeenCalledOnce();
+    expect(secondStop).toHaveBeenCalledOnce();
+  });
+
   it("normalizes unknown failures without replacing an existing AppError", () => {
     const existing = new AppError("device-not-found");
 
