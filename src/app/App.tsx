@@ -4,6 +4,7 @@ import {
   type AudioWorkletNodeFactory,
   createAudioEngine,
   type MicrophoneRequester,
+  type WorkerFactory,
 } from "../audio/audio-engine";
 import type { AudioEngineStatus } from "../audio/audio-types";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
@@ -21,7 +22,10 @@ export interface AppProps {
   requestMicrophone?: MicrophoneRequester;
   createAudioContext?: AudioContextFactory;
   createAudioWorkletNode?: AudioWorkletNodeFactory;
+  createWorker?: WorkerFactory;
   workletModuleUrl?: string;
+  workerModuleUrl?: string;
+  workerReadyTimeoutMs?: number;
 }
 
 function reportAudioLifecycleFailure(error: unknown): void {
@@ -33,7 +37,10 @@ export function App({
   requestMicrophone,
   createAudioContext,
   createAudioWorkletNode,
+  createWorker,
   workletModuleUrl,
+  workerModuleUrl,
+  workerReadyTimeoutMs,
 }: AppProps = {}) {
   const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
   const [audioEngine] = useState(() =>
@@ -41,7 +48,10 @@ export function App({
       ...(requestMicrophone ? { requestMicrophone } : {}),
       ...(createAudioContext ? { createAudioContext } : {}),
       ...(createAudioWorkletNode ? { createAudioWorkletNode } : {}),
+      ...(createWorker ? { createWorker } : {}),
       ...(workletModuleUrl ? { workletModuleUrl } : {}),
+      ...(workerModuleUrl ? { workerModuleUrl } : {}),
+      ...(workerReadyTimeoutMs === undefined ? {} : { workerReadyTimeoutMs }),
     }),
   );
   const audioSnapshot = useSyncExternalStore(

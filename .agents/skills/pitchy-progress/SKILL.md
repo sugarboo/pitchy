@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-07-22`
-- Current milestone: `M1`
-- Current backlog item: `VT-006`
+- Last updated: `2026-07-26`
+- Current milestone: `M2`
+- Current backlog item: `VT-008`
 - Current state: `pending`
-- Recommended route: `audio-thread`
+- Recommended route: `pitch-dsp`
 
 ## Current handoff
 
-VT-005 is complete, including a React Strict Mode lifecycle regression fix: replayable App effect cleanup now stops owned audio resources without permanently disposing the retained engine, and a browser regression proves start plus final unmount cleanup after effect replay. The production AudioWorklet downmixes arbitrary input channel blocks into overlapping 4096-sample frames at a 2048-sample hop, transfers owned `Float32Array` buffers to the main thread, and runs in the silent `MediaStreamSource → AudioWorkletNode → GainNode(0) → destination` graph. VT-006 is next: define the runtime-validated Dedicated Worker protocol, create the TypeScript Worker lifecycle, and transfer each accepted PCM buffer from the engine boundary without routing it through React state. Cover both protocol directions, startup/runtime failure cleanup, stale messages, and production Worker loading. Do not add RMS/dBFS (VT-007) or YIN behavior yet.
+VT-007 is complete. The pure DSP level module computes non-mutating, two-pass AC RMS after removing each frame's mean, converts it with `20 * log10(rms)` to approximate dBFS, preserves positive over-full-scale results, and maps silence or invalid direct calls to a finite `-160 dBFS` transport floor that is explicitly not a noise-gate threshold. Pitch Worker protocol v2 rejects non-finite PCM, requires exact message keys, validates RMS/dBFS consistency, and cannot forward `samples` or other extra fields through the public frame subscription. Deterministic coverage includes silence, known amplitudes, low and over-full-scale signals, DC bias, invalid values, input immutability, and 44.1/48 kHz sine frames. Production Chromium E2E observes a self-consistent non-silent level from the compiled Worker while preserving transferable-buffer and teardown guarantees. VT-008 is next: implement and benchmark only the YIN difference function, leaving CMND, candidate search, confidence, voiced/noise-gate decisions, smoothing, and UI behavior to their owning backlog items.
 
 First command: `pnpm skills:route`
 
@@ -32,8 +32,8 @@ First command: `pnpm skills:route`
 | VT-003 | complete | Permission requests are explicit-click only; standard/legacy failures map to actionable codes, probe tracks are released, and unit/browser/E2E tests pass. |
 | VT-004 | complete | Injected lifecycle controller and UI cover start/pause/resume/stop, context and track events, actual sample rate, late streams, partial failures, and deterministic cleanup without Worklet behavior. |
 | VT-005 | complete | DOM-free mono framing, transferable Worklet messages, production-built module loading, silent graph wiring, protocol validation, and full cleanup are covered by unit/browser/E2E tests. |
-| VT-006 | pending | Add a runtime-validated Dedicated Worker protocol, lifecycle, and transferable main-thread forwarding without DSP. |
-| VT-007 | pending | Add RMS and approximate dBFS. |
+| VT-006 | complete | Versioned bidirectional protocol, ready handshake/timeout, transferable PCM forwarding, sequence guards, error cleanup, stale-message isolation, and production Worker loading are covered. |
+| VT-007 | complete | Two-pass DC-removed AC RMS, finite approximate dBFS, protocol v2 validation, deterministic tests, benchmark, and production Worker E2E pass. |
 | VT-008 | pending | Implement YIN difference function. |
 | VT-009 | pending | Add CMND and candidate search. |
 | VT-010 | pending | Add interpolation and confidence. |
@@ -59,13 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 35 files with no fixes required. |
+| `pnpm check` | pass | Biome checked 42 files after Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 5 unit files, 44 tests, including framing across arbitrary block boundaries, stereo downmix, graph/error cleanup, and PCM message validation. |
+| `pnpm test` | pass | 7 unit files, 70 tests, including deterministic AC RMS/dBFS, exact protocol validation, Worker correlation, transferred buffers, runtime cleanup, and stale-message isolation. |
 | `pnpm test:browser` | pass | 1 browser file, 10 Chromium tests, including start and final audio cleanup after Strict Mode effect replay. |
-| `pnpm build` | pass | Vite emitted a separate 1.53 kB hashed Worklet JavaScript asset and generated the Service Worker; 9 entries / 237.38 KiB precached. |
-| `pnpm test:e2e` | pass | 6 Chromium tests include lifecycle cleanup plus native production Worklet loading and 4096-sample transferable frames from a local 440 Hz synthetic stream. |
-| `pnpm check:size` | pass | Compressed app shell is 80.8 KiB of the 500 KiB budget. |
+| `pnpm build` | pass | Vite emitted separate 1.66 kB Worker and 1.53 kB Worklet JavaScript assets; 10 entries / 243.46 KiB are precached. |
+| `pnpm test:e2e` | pass | 6 Chromium tests include lifecycle cleanup plus native production Worker/Worklet loading, detached 4096-sample transfers, and a self-consistent non-silent RMS/dBFS result from a local 440 Hz stream. |
+| `pnpm check:size` | pass | Compressed app shell is 82.7 KiB of the 500 KiB budget. |
+| `pnpm benchmark:dsp --run` | pass | Final 4096-sample AC RMS/dBFS benchmark measured about 9,698 frames/s in Node and 9,848 frames/s in Chromium, with mean frame time near 0.103/0.102 ms and no CI threshold asserted. |
 
 ## Durable decisions
 
@@ -81,17 +82,21 @@ First command: `pnpm skills:route`
 - Construct the AudioContext synchronously within the explicit start-click call chain, before awaiting microphone permission, so transient user activation is not lost on stricter mobile browsers. Close that context if permission fails or the request is cancelled.
 - Retain microphone tracks while running or suspended so the same practice context can resume. Stop every track only on stop, unmount, failure, or replacement; a hidden page suspends a running session, cancels an incomplete startup, and requires an explicit user action to resume or restart.
 - Keep PCM accumulation in a DOM-free ring framer that accepts arbitrary render-block sizes; never hardcode the browser's render quantum. Each emitted frame owns its buffer so the Worklet can transfer it without corrupting overlap history.
-- Build the TypeScript Worklet through Vite's `?worker&url` path and validate every received message before publishing it on the engine's high-frequency subscription. Keep PCM frames out of React state.
+- Build the TypeScript Worklet through Vite's `?worker&url` path and validate every received message before transferring its owned buffer directly to the Dedicated Worker. Raw PCM has no React or public engine subscription.
 - Keep two independent mute boundaries: zero every Worklet output channel and connect through `GainNode(gain = 0)`. On teardown, remove both port/node listeners, close the MessagePort, disconnect all three graph nodes, stop tracks, and close the context.
 - Use reversible `AudioEngine.stop()` in React effect cleanup because root Strict Mode replays effects while retaining component state. Reserve permanent `dispose()` for ownership boundaries that cannot be replayed.
+- Build the pitch Worker through its own Vite `?worker&url` path and start it as a named module Worker. Require a versioned configure/ready handshake before loading the Worklet, transfer each validated `Float32Array` once, correlate small result messages by sequence, and terminate the Worker with the rest of the audio graph.
+- Measure input level as AC RMS over a mean-centered frame using two passes, so DC bias is excluded without the cancellation error of `E[x²] - mean²` or mutation of transferred PCM. Preserve positive dBFS for float over-range input, and use `-160 dBFS` only as a finite silence/transport floor.
+- Treat Worker protocol v2 as an exact runtime boundary: reject non-finite PCM, require RMS/dBFS consistency, reject unknown keys, and never allow raw `samples` into the public main-thread result subscription.
 
 ## Known risks
 
-- Permission, AudioContext, and native AudioWorklet paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- No Dedicated Worker, RMS, pitch DSP, storage database, offline-reopen, or real-device lifecycle behavior has been implemented or claimed.
+- Permission, AudioContext, native AudioWorklet, and Dedicated Worker paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
+- Only RMS level DSP is implemented; YIN, confidence, voiced/noise-gate decisions, note conversion, smoothing, level UI, storage database, offline-reopen, and real-device lifecycle behavior remain unimplemented.
 - PWA manifest generation and the update prompt build are covered, but installability, offline reopen, and update activation remain VT-023/VT-024 acceptance work.
 - The PWA currently uses one SVG icon; platform-specific PNG icon QA remains for the release milestone.
 - Automated browser evidence is Chromium-only on this machine; Safari, Firefox, mobile browsers, and manual visual/accessibility QA remain unverified.
+- The Windows checkout uses CRLF while Biome's current formatter default expects LF, so the full `pnpm check` evidence required temporary line-ending normalization; a repository-wide EOL policy remains to be resolved without mixing mechanical churn into DSP work.
 
 ## Update contract
 

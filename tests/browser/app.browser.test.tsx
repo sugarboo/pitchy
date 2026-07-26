@@ -10,8 +10,14 @@ import type {
   ManagedAudioNode,
   ManagedAudioWorkletNode,
   ManagedMessageListener,
+  ManagedWorker,
+  ManagedWorkerMessageListener,
 } from "../../src/audio/audio-engine";
 import { AppError } from "../../src/audio/audio-types";
+import {
+  isConfigurePitchWorkerMessage,
+  PITCH_WORKER_PROTOCOL_VERSION,
+} from "../../src/audio/workers/worker-protocol";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -67,6 +73,62 @@ class FakeAudioWorkletNode extends FakeAudioNode implements ManagedAudioWorkletN
     if (type === "processorerror") {
       this.#processorErrorListeners.delete(listener);
     }
+  }
+}
+
+class FakeWorker implements ManagedWorker {
+  readonly #messageListeners = new Set<ManagedWorkerMessageListener>();
+  readonly #errorListeners = new Set<EventListener>();
+  readonly #messageErrorListeners = new Set<EventListener>();
+  readonly terminate = vi.fn();
+  readonly postMessage = vi.fn((message: unknown, _transfer: Transferable[]): void => {
+    if (!isConfigurePitchWorkerMessage(message)) {
+      return;
+    }
+
+    const event = {
+      data: {
+        type: "worker-ready",
+        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+        sampleRate: message.sampleRate,
+        frameSize: message.frameSize,
+      },
+    } as MessageEvent<unknown>;
+    for (const listener of this.#messageListeners) {
+      listener(event);
+    }
+  });
+
+  addEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: ManagedWorkerMessageListener | EventListener,
+  ): void {
+    if (type === "message") {
+      this.#messageListeners.add(listener as ManagedWorkerMessageListener);
+    } else if (type === "error") {
+      this.#errorListeners.add(listener as EventListener);
+    } else {
+      this.#messageErrorListeners.add(listener as EventListener);
+    }
+  }
+
+  removeEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: ManagedWorkerMessageListener | EventListener,
+  ): void {
+    if (type === "message") {
+      this.#messageListeners.delete(listener as ManagedWorkerMessageListener);
+    } else if (type === "error") {
+      this.#errorListeners.delete(listener as EventListener);
+    } else {
+      this.#messageErrorListeners.delete(listener as EventListener);
+    }
+  }
+
+  get listenerCount(): number {
+    return (
+      this.#messageListeners.size + this.#errorListeners.size + this.#messageErrorListeners.size
+    );
   }
 }
 
@@ -140,7 +202,9 @@ async function renderApp(props: AppProps = {}, options: RenderAppOptions = {}) {
   root = createRoot(host);
   const resolvedProps: AppProps = {
     createAudioWorkletNode: vi.fn(() => new FakeAudioWorkletNode()),
+    createWorker: vi.fn(() => new FakeWorker()),
     workletModuleUrl: "/assets/pcm-capture.browser-test.js",
+    workerModuleUrl: "/assets/pitch-worker.browser-test.js",
     ...props,
   };
   const app = (
@@ -198,12 +262,16 @@ describe("App", () => {
     const createAudioContext = vi.fn(() => context);
     const workletNode = new FakeAudioWorkletNode();
     const createAudioWorkletNode = vi.fn(() => workletNode);
+    const worker = new FakeWorker();
+    const createWorker = vi.fn(() => worker);
     await renderApp({
       supportOverride: createSupportedSnapshot(),
       requestMicrophone,
       createAudioContext,
       createAudioWorkletNode,
+      createWorker,
       workletModuleUrl: "/assets/pcm-capture.integration.js",
+      workerModuleUrl: "/assets/pitch-worker.integration.js",
     });
 
     const startButton = document.querySelector<HTMLButtonElement>(".primary-button");
@@ -215,6 +283,10 @@ describe("App", () => {
 
     expect(requestMicrophone).toHaveBeenCalledOnce();
     expect(createAudioContext).toHaveBeenCalledOnce();
+    expect(createWorker).toHaveBeenCalledExactlyOnceWith("/assets/pitch-worker.integration.js", {
+      type: "module",
+      name: "pitchy-pitch-worker",
+    });
     expect(context.addModule).toHaveBeenCalledExactlyOnceWith("/assets/pcm-capture.integration.js");
     expect(createAudioWorkletNode).toHaveBeenCalledOnce();
     expect(context.sourceNode.connect).toHaveBeenCalledExactlyOnceWith(workletNode);
@@ -235,6 +307,7 @@ describe("App", () => {
     expect(requestMicrophone).toHaveBeenCalledOnce();
     expect(createAudioContext).toHaveBeenCalledOnce();
     expect(createAudioWorkletNode).toHaveBeenCalledOnce();
+    expect(createWorker).toHaveBeenCalledOnce();
     expect(document.querySelector(".permission-feedback")?.textContent).toContain(
       "Local audio is running",
     );
@@ -257,6 +330,8 @@ describe("App", () => {
     expect(workletNode.disconnect).toHaveBeenCalledOnce();
     expect(context.muteGainNode.disconnect).toHaveBeenCalledOnce();
     expect(workletNode.port.close).toHaveBeenCalledOnce();
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(worker.listenerCount).toBe(0);
     expect(firstTrack.stop).toHaveBeenCalledOnce();
     expect(secondTrack.stop).toHaveBeenCalledOnce();
     expect(context.close).toHaveBeenCalledOnce();
@@ -273,12 +348,15 @@ describe("App", () => {
     const requestMicrophone = vi.fn(async () => createStream(track));
     const createAudioContext = vi.fn(() => context);
     const createAudioWorkletNode = vi.fn(() => workletNode);
+    const worker = new FakeWorker();
+    const createWorker = vi.fn(() => worker);
     await renderApp(
       {
         supportOverride: createSupportedSnapshot(),
         requestMicrophone,
         createAudioContext,
         createAudioWorkletNode,
+        createWorker,
       },
       { strictMode: true },
     );
@@ -288,6 +366,7 @@ describe("App", () => {
     expect(requestMicrophone).toHaveBeenCalledOnce();
     expect(createAudioContext).toHaveBeenCalledOnce();
     expect(createAudioWorkletNode).toHaveBeenCalledOnce();
+    expect(createWorker).toHaveBeenCalledOnce();
     expect(context.resume).toHaveBeenCalledOnce();
     expect(document.querySelector(".permission-feedback")?.textContent).toContain(
       "本地音频环境已启动",
@@ -303,6 +382,7 @@ describe("App", () => {
     expect(workletNode.disconnect).toHaveBeenCalledOnce();
     expect(context.muteGainNode.disconnect).toHaveBeenCalledOnce();
     expect(workletNode.port.close).toHaveBeenCalledOnce();
+    expect(worker.terminate).toHaveBeenCalledOnce();
     expect(track.stop).toHaveBeenCalledOnce();
     expect(context.close).toHaveBeenCalledOnce();
   });

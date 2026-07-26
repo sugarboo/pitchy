@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { SILENCE_DBFS } from "../dsp/rms";
 import {
   AudioEngine,
   type AudioEngineDependencies,
@@ -7,8 +8,15 @@ import {
   type ManagedAudioNode,
   type ManagedAudioWorkletNode,
   type ManagedMessageListener,
+  type ManagedWorker,
+  type ManagedWorkerMessageListener,
 } from "./audio-engine";
 import { AppError } from "./audio-types";
+import {
+  isConfigurePitchWorkerMessage,
+  isProcessPitchFrameMessage,
+  PITCH_WORKER_PROTOCOL_VERSION,
+} from "./workers/worker-protocol";
 import {
   DEFAULT_PCM_CAPTURE_CONFIG,
   PCM_CAPTURE_PROCESSOR_NAME,
@@ -116,6 +124,111 @@ class FakeAudioWorkletNode extends FakeAudioNode implements ManagedAudioWorkletN
   }
 }
 
+class FakeWorker implements ManagedWorker {
+  readonly #messageListeners = new Set<ManagedWorkerMessageListener>();
+  readonly #allMessageListeners = new Set<ManagedWorkerMessageListener>();
+  readonly #errorListeners = new Set<EventListener>();
+  readonly #messageErrorListeners = new Set<EventListener>();
+  readonly messages: unknown[] = [];
+  readonly terminate = vi.fn((): void => undefined);
+  readonly autoReady: boolean;
+  readonly autoProcess: boolean;
+  #frameSize: number | null = null;
+
+  constructor({ autoProcess = true, autoReady = true } = {}) {
+    this.autoReady = autoReady;
+    this.autoProcess = autoProcess;
+  }
+
+  addEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: ManagedWorkerMessageListener | EventListener,
+  ): void {
+    if (type === "message") {
+      const messageListener = listener as ManagedWorkerMessageListener;
+      this.#messageListeners.add(messageListener);
+      this.#allMessageListeners.add(messageListener);
+    } else if (type === "error") {
+      this.#errorListeners.add(listener as EventListener);
+    } else {
+      this.#messageErrorListeners.add(listener as EventListener);
+    }
+  }
+
+  removeEventListener(
+    type: "message" | "error" | "messageerror",
+    listener: ManagedWorkerMessageListener | EventListener,
+  ): void {
+    if (type === "message") {
+      this.#messageListeners.delete(listener as ManagedWorkerMessageListener);
+    } else if (type === "error") {
+      this.#errorListeners.delete(listener as EventListener);
+    } else {
+      this.#messageErrorListeners.delete(listener as EventListener);
+    }
+  }
+
+  readonly postMessage = vi.fn((message: unknown, transfer: Transferable[]): void => {
+    const received = structuredClone(message, { transfer });
+    this.messages.push(received);
+
+    if (isConfigurePitchWorkerMessage(received)) {
+      this.#frameSize = received.frameSize;
+      if (this.autoReady) {
+        this.emit({
+          type: "worker-ready",
+          protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+          sampleRate: received.sampleRate,
+          frameSize: received.frameSize,
+        });
+      }
+      return;
+    }
+
+    if (
+      this.autoProcess &&
+      this.#frameSize !== null &&
+      isProcessPitchFrameMessage(received, this.#frameSize)
+    ) {
+      this.emit({
+        type: "frame-processed",
+        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+        sequence: received.sequence,
+        rms: 0,
+        rmsDbfs: SILENCE_DBFS,
+      });
+    }
+  });
+
+  emit(data: unknown): void {
+    const event = { data } as MessageEvent<unknown>;
+    for (const listener of this.#messageListeners) {
+      listener(event);
+    }
+  }
+
+  emitQueuedFromReleasedWorker(data: unknown): void {
+    const event = { data } as MessageEvent<unknown>;
+    for (const listener of this.#allMessageListeners) {
+      listener(event);
+    }
+  }
+
+  fail(type: "error" | "messageerror" = "error"): void {
+    const event = new Event(type, { cancelable: true });
+    const listeners = type === "error" ? this.#errorListeners : this.#messageErrorListeners;
+    for (const listener of listeners) {
+      listener(event);
+    }
+  }
+
+  get listenerCount(): number {
+    return (
+      this.#messageListeners.size + this.#errorListeners.size + this.#messageErrorListeners.size
+    );
+  }
+}
+
 class FakeAudioContext implements ManagedAudioContext {
   readonly #listeners = new Set<EventListener>();
   readonly sampleRate: number;
@@ -199,7 +312,10 @@ function createTestDependencies(
     requestMicrophone: vi.fn(async () => createStream(new FakeTrack())),
     createAudioContext: vi.fn(() => new FakeAudioContext()),
     createAudioWorkletNode: vi.fn(() => new FakeAudioWorkletNode()),
+    createWorker: vi.fn(() => new FakeWorker()),
     workletModuleUrl: "/assets/pcm-capture.test.js",
+    workerModuleUrl: "/assets/pitch-worker.test.js",
+    workerReadyTimeoutMs: 5_000,
     ...overrides,
   };
 }
@@ -208,18 +324,27 @@ function createEngine(
   stream: MediaStream,
   context: FakeAudioContext,
   workletNode = new FakeAudioWorkletNode(),
+  worker = new FakeWorker(),
 ) {
   const requestMicrophone = vi.fn(async () => stream);
   const createAudioContext = vi.fn(() => context);
   const createAudioWorkletNode = vi.fn(() => workletNode);
+  const createWorker = vi.fn(() => worker);
   const engine = new AudioEngine(
-    createTestDependencies({ requestMicrophone, createAudioContext, createAudioWorkletNode }),
+    createTestDependencies({
+      requestMicrophone,
+      createAudioContext,
+      createAudioWorkletNode,
+      createWorker,
+    }),
   );
   return {
     createAudioContext,
     createAudioWorkletNode,
+    createWorker,
     engine,
     requestMicrophone,
+    worker,
     workletNode,
   };
 }
@@ -229,8 +354,15 @@ describe("AudioEngine lifecycle", () => {
     const track = new FakeTrack();
     const stream = createStream(track);
     const context = new FakeAudioContext("suspended", 44_100);
-    const { createAudioContext, createAudioWorkletNode, engine, requestMicrophone, workletNode } =
-      createEngine(stream, context);
+    const {
+      createAudioContext,
+      createAudioWorkletNode,
+      createWorker,
+      engine,
+      requestMicrophone,
+      worker,
+      workletNode,
+    } = createEngine(stream, context);
     const statuses: string[] = [];
     engine.subscribe((snapshot) => statuses.push(snapshot.status));
 
@@ -242,6 +374,16 @@ describe("AudioEngine lifecycle", () => {
     expect(requestMicrophone).toHaveBeenCalledOnce();
     expect(createAudioContext).toHaveBeenCalledOnce();
     expect(context.createMediaStreamSource).toHaveBeenCalledExactlyOnceWith(stream);
+    expect(createWorker).toHaveBeenCalledExactlyOnceWith("/assets/pitch-worker.test.js", {
+      type: "module",
+      name: "pitchy-pitch-worker",
+    });
+    expect(worker.messages[0]).toEqual({
+      type: "configure",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sampleRate: 44_100,
+      frameSize: DEFAULT_PCM_CAPTURE_CONFIG.frameSize,
+    });
     expect(context.addModule).toHaveBeenCalledExactlyOnceWith("/assets/pcm-capture.test.js");
     expect(createAudioWorkletNode).toHaveBeenCalledExactlyOnceWith(
       context,
@@ -303,7 +445,10 @@ describe("AudioEngine lifecycle", () => {
     const firstTrack = new FakeTrack();
     const secondTrack = new FakeTrack();
     const context = new FakeAudioContext("running");
-    const { engine, workletNode } = createEngine(createStream(firstTrack, secondTrack), context);
+    const { engine, worker, workletNode } = createEngine(
+      createStream(firstTrack, secondTrack),
+      context,
+    );
     const statuses: string[] = [];
     engine.subscribe((snapshot) => statuses.push(snapshot.status));
     await engine.start();
@@ -316,6 +461,8 @@ describe("AudioEngine lifecycle", () => {
     expect(workletNode.port.close).toHaveBeenCalledOnce();
     expect(workletNode.port.listenerCount).toBe(0);
     expect(workletNode.processorErrorListenerCount).toBe(0);
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(worker.listenerCount).toBe(0);
     expect(firstTrack.stop).toHaveBeenCalledOnce();
     expect(secondTrack.stop).toHaveBeenCalledOnce();
     expect(context.close).toHaveBeenCalledOnce();
@@ -392,29 +539,265 @@ describe("AudioEngine lifecycle", () => {
     expect(context.close).toHaveBeenCalledOnce();
   });
 
-  it("forwards only validated PCM frame messages through the high-frequency subscription", async () => {
+  it("reports a Worker construction failure and releases the partial audio resources", async () => {
+    const failure = new Error("worker construction failed");
+    const track = new FakeTrack();
+    const context = new FakeAudioContext();
+    const { createAudioWorkletNode, createWorker, engine } = createEngine(
+      createStream(track),
+      context,
+    );
+    createWorker.mockImplementation(() => {
+      throw failure;
+    });
+
+    await expect(engine.start()).rejects.toMatchObject({
+      code: "worker-failed",
+      cause: failure,
+    });
+
+    expect(createAudioWorkletNode).not.toHaveBeenCalled();
+    expect(context.addModule).not.toHaveBeenCalled();
+    expect(context.sourceNode.disconnect).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(engine.getSnapshot().errorCode).toBe("worker-failed");
+  });
+
+  it("treats an asynchronous Worker load error as a startup failure", async () => {
+    const track = new FakeTrack();
+    const context = new FakeAudioContext();
+    const worker = new FakeWorker({ autoReady: false });
+    const { engine } = createEngine(
+      createStream(track),
+      context,
+      new FakeAudioWorkletNode(),
+      worker,
+    );
+
+    const startTask = engine.start();
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(1));
+    worker.fail();
+
+    await expect(startTask).rejects.toMatchObject({ code: "worker-failed" });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(worker.listenerCount).toBe(0);
+    expect(context.sourceNode.disconnect).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(engine.getSnapshot().errorCode).toBe("worker-failed");
+  });
+
+  it("times out an unresponsive Worker and cleans up without starting the Worklet", async () => {
+    const track = new FakeTrack();
+    const context = new FakeAudioContext();
+    const worker = new FakeWorker({ autoReady: false });
+    const createAudioWorkletNode = vi.fn(() => new FakeAudioWorkletNode());
+    const engine = new AudioEngine(
+      createTestDependencies({
+        requestMicrophone: vi.fn(async () => createStream(track)),
+        createAudioContext: vi.fn(() => context),
+        createAudioWorkletNode,
+        createWorker: vi.fn(() => worker),
+        workerReadyTimeoutMs: 0,
+      }),
+    );
+
+    await expect(engine.start()).rejects.toMatchObject({ code: "worker-failed" });
+
+    expect(createAudioWorkletNode).not.toHaveBeenCalled();
+    expect(context.addModule).not.toHaveBeenCalled();
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
+  it("cancels a pending Worker handshake when the session stops", async () => {
+    const track = new FakeTrack();
+    const context = new FakeAudioContext();
+    const worker = new FakeWorker({ autoReady: false });
+    const { engine } = createEngine(
+      createStream(track),
+      context,
+      new FakeAudioWorkletNode(),
+      worker,
+    );
+
+    const startTask = engine.start();
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(1));
+    await engine.stop();
+    await startTask;
+
+    expect(engine.getSnapshot()).toEqual(INITIAL_ENGINE_SNAPSHOT);
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(worker.listenerCount).toBe(0);
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
+  it("transfers validated PCM ownership to the Worker and publishes only correlated results", async () => {
     const context = new FakeAudioContext("running");
-    const { engine, workletNode } = createEngine(createStream(new FakeTrack()), context);
-    const frames: Array<{ sequence: number; samples: Float32Array }> = [];
-    const unsubscribe = engine.subscribePcmFrames((message) => frames.push(message));
+    const worker = new FakeWorker({ autoProcess: false });
+    const { engine, workletNode } = createEngine(
+      createStream(new FakeTrack()),
+      context,
+      new FakeAudioWorkletNode(),
+      worker,
+    );
+    const processedFrames: Array<{ sequence: number; rms: number; rmsDbfs: number }> = [];
+    const unsubscribe = engine.subscribeWorkerFrames((message) => {
+      processedFrames.push({
+        sequence: message.sequence,
+        rms: message.rms,
+        rmsDbfs: message.rmsDbfs,
+      });
+    });
     await engine.start();
 
     const validSamples = new Float32Array(DEFAULT_PCM_CAPTURE_CONFIG.frameSize);
+    const shortSamples = new Float32Array(8);
+    const unexpectedSamples = new Float32Array(DEFAULT_PCM_CAPTURE_CONFIG.frameSize);
+    const duplicateSamples = new Float32Array(DEFAULT_PCM_CAPTURE_CONFIG.frameSize);
     workletNode.port.emit({ type: "pcm-frame", sequence: 7, samples: validSamples });
-    workletNode.port.emit({ type: "pcm-frame", sequence: 8, samples: new Float32Array(8) });
-    workletNode.port.emit({ type: "unexpected", sequence: 9, samples: validSamples });
+    workletNode.port.emit({ type: "pcm-frame", sequence: 8, samples: shortSamples });
+    workletNode.port.emit({ type: "unexpected", sequence: 9, samples: unexpectedSamples });
+    workletNode.port.emit({ type: "pcm-frame", sequence: 7, samples: duplicateSamples });
 
-    expect(frames).toEqual([{ type: "pcm-frame", sequence: 7, samples: validSamples }]);
+    expect(validSamples.buffer.byteLength).toBe(0);
+    expect(shortSamples.buffer.byteLength).toBe(8 * Float32Array.BYTES_PER_ELEMENT);
+    expect(unexpectedSamples.buffer.byteLength).toBe(
+      DEFAULT_PCM_CAPTURE_CONFIG.frameSize * Float32Array.BYTES_PER_ELEMENT,
+    );
+    expect(duplicateSamples.buffer.byteLength).toBe(
+      DEFAULT_PCM_CAPTURE_CONFIG.frameSize * Float32Array.BYTES_PER_ELEMENT,
+    );
+    expect(worker.messages).toHaveLength(2);
+    expect(worker.messages[1]).toMatchObject({
+      type: "process-frame",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 7,
+      samples: expect.any(Float32Array),
+    });
 
+    worker.emit({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 8,
+      rms: 0.25,
+      rmsDbfs: -12.041199826559248,
+    });
+    worker.emit({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 7,
+      rms: 0.5,
+      rmsDbfs: -6.020599913279624,
+    });
+    worker.emit({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 7,
+      rms: 0.75,
+      rmsDbfs: -2.4987747321659985,
+    });
+    expect(processedFrames).toEqual([
+      {
+        sequence: 7,
+        rms: 0.5,
+        rmsDbfs: -6.020599913279624,
+      },
+    ]);
+
+    const laterSamples = new Float32Array(DEFAULT_PCM_CAPTURE_CONFIG.frameSize);
     unsubscribe();
-    workletNode.port.emit({ type: "pcm-frame", sequence: 10, samples: validSamples });
-    expect(frames).toHaveLength(1);
+    workletNode.port.emit({ type: "pcm-frame", sequence: 10, samples: laterSamples });
+    worker.emit({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 10,
+      rms: 0,
+      rmsDbfs: SILENCE_DBFS,
+    });
+    expect(processedFrames).toHaveLength(1);
+  });
+
+  it("turns a runtime Worker protocol failure into a recoverable error and full cleanup", async () => {
+    const track = new FakeTrack();
+    const context = new FakeAudioContext("running");
+    const { engine, worker, workletNode } = createEngine(createStream(track), context);
+    await engine.start();
+
+    worker.emit({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 0,
+      rms: Number.NaN,
+      rmsDbfs: SILENCE_DBFS,
+    });
+    await Promise.resolve();
+
+    expect(engine.getSnapshot().errorCode).toBe("worker-failed");
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(worker.listenerCount).toBe(0);
+    expect(context.sourceNode.disconnect).toHaveBeenCalledOnce();
+    expect(workletNode.disconnect).toHaveBeenCalledOnce();
+    expect(context.muteGainNode.disconnect).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a queued response from a released Worker after a fresh start", async () => {
+    const firstWorker = new FakeWorker();
+    const secondWorker = new FakeWorker();
+    const firstContext = new FakeAudioContext("running");
+    const secondContext = new FakeAudioContext("running");
+    const createAudioContext = vi
+      .fn<() => ManagedAudioContext>()
+      .mockReturnValueOnce(firstContext)
+      .mockReturnValueOnce(secondContext);
+    const createWorker = vi
+      .fn<() => ManagedWorker>()
+      .mockReturnValueOnce(firstWorker)
+      .mockReturnValueOnce(secondWorker);
+    const engine = new AudioEngine(
+      createTestDependencies({
+        requestMicrophone: vi
+          .fn<() => Promise<MediaStream>>()
+          .mockResolvedValueOnce(createStream(new FakeTrack()))
+          .mockResolvedValueOnce(createStream(new FakeTrack())),
+        createAudioContext,
+        createAudioWorkletNode: vi
+          .fn<() => ManagedAudioWorkletNode>()
+          .mockReturnValueOnce(new FakeAudioWorkletNode())
+          .mockReturnValueOnce(new FakeAudioWorkletNode()),
+        createWorker,
+      }),
+    );
+
+    await engine.start();
+    await engine.stop();
+    await engine.start();
+
+    firstWorker.emitQueuedFromReleasedWorker({ type: "unexpected-worker-response" });
+    firstWorker.emitQueuedFromReleasedWorker({
+      type: "frame-processed",
+      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+      sequence: 0,
+      rms: 0,
+      rmsDbfs: SILENCE_DBFS,
+    });
+    await Promise.resolve();
+
+    expect(engine.getSnapshot().status).toBe("running");
+    expect(engine.getSnapshot().errorCode).toBeNull();
+    expect(firstWorker.terminate).toHaveBeenCalledOnce();
+    expect(secondWorker.terminate).not.toHaveBeenCalled();
   });
 
   it("turns a processor failure into a worklet error and releases the full graph", async () => {
     const track = new FakeTrack();
     const context = new FakeAudioContext("running");
-    const { engine, workletNode } = createEngine(createStream(track), context);
+    const { engine, worker, workletNode } = createEngine(createStream(track), context);
     await engine.start();
 
     workletNode.fail();
@@ -425,6 +808,7 @@ describe("AudioEngine lifecycle", () => {
     expect(workletNode.disconnect).toHaveBeenCalledOnce();
     expect(context.muteGainNode.disconnect).toHaveBeenCalledOnce();
     expect(workletNode.port.close).toHaveBeenCalledOnce();
+    expect(worker.terminate).toHaveBeenCalledOnce();
     expect(track.stop).toHaveBeenCalledOnce();
     expect(context.close).toHaveBeenCalledOnce();
   });

@@ -1,11 +1,17 @@
 import { AppError, type AppErrorCode, type AudioEngineStatus, toAppError } from "./audio-types";
 import { requestMicrophoneAccess, stopMediaStream } from "./media-devices";
+import pitchWorkerUrl from "./workers/pitch.worker.ts?worker&url";
+import {
+  isPitchWorkerResponse,
+  PITCH_WORKER_NAME,
+  PITCH_WORKER_PROTOCOL_VERSION,
+  type PitchFrameProcessedMessage,
+} from "./workers/worker-protocol";
 import pcmCaptureWorkletUrl from "./worklets/pcm-capture.worklet.ts?worker&url";
 import {
   DEFAULT_PCM_CAPTURE_CONFIG,
   isPcmCaptureMessage,
   PCM_CAPTURE_PROCESSOR_NAME,
-  type PcmCaptureMessage,
 } from "./worklets/pcm-capture-protocol";
 
 export interface AudioEngineSnapshot {
@@ -41,6 +47,17 @@ export interface ManagedAudioWorkletNode extends ManagedAudioNode {
   removeEventListener(type: "processorerror", listener: EventListener): void;
 }
 
+export type ManagedWorkerMessageListener = (event: MessageEvent<unknown>) => void;
+
+export interface ManagedWorker {
+  addEventListener(type: "message", listener: ManagedWorkerMessageListener): void;
+  addEventListener(type: "error" | "messageerror", listener: EventListener): void;
+  removeEventListener(type: "message", listener: ManagedWorkerMessageListener): void;
+  removeEventListener(type: "error" | "messageerror", listener: EventListener): void;
+  postMessage(message: unknown, transfer: Transferable[]): void;
+  terminate(): void;
+}
+
 export type ManagedAudioContextState = AudioContextState | "interrupted";
 
 export interface ManagedAudioContext {
@@ -64,20 +81,32 @@ export type AudioWorkletNodeFactory = (
   processorName: string,
   options: AudioWorkletNodeOptions,
 ) => ManagedAudioWorkletNode;
+export type WorkerFactory = (moduleUrl: string, options: WorkerOptions) => ManagedWorker;
 
 export interface AudioEngineDependencies {
   requestMicrophone: MicrophoneRequester;
   createAudioContext: AudioContextFactory;
   createAudioWorkletNode: AudioWorkletNodeFactory;
+  createWorker: WorkerFactory;
   workletModuleUrl: string;
+  workerModuleUrl: string;
+  workerReadyTimeoutMs: number;
 }
 
 type AudioEngineListener = (snapshot: AudioEngineSnapshot) => void;
-export type PcmCaptureListener = (message: Readonly<PcmCaptureMessage>) => void;
+export type PitchWorkerFrameListener = (message: Readonly<PitchFrameProcessedMessage>) => void;
 
 interface TrackListener {
   track: MediaStreamTrack;
   listener: EventListener;
+}
+
+interface WorkerStartup {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: AppError) => void;
+  settled: boolean;
+  timeoutId: ReturnType<typeof setTimeout> | null;
 }
 
 interface EngineResources {
@@ -86,9 +115,17 @@ interface EngineResources {
   sourceNode: ManagedAudioNode | null;
   workletNode: ManagedAudioWorkletNode | null;
   muteGainNode: ManagedGainNode | null;
+  worker: ManagedWorker | null;
+  workerStartup: WorkerStartup | null;
+  workerReady: boolean;
+  lastForwardedSequence: number;
+  lastProcessedSequence: number;
   contextStateListener: EventListener | null;
   workletMessageListener: ManagedMessageListener | null;
   processorErrorListener: EventListener | null;
+  workerMessageListener: ManagedWorkerMessageListener | null;
+  workerErrorListener: EventListener | null;
+  workerMessageErrorListener: EventListener | null;
   readonly trackListeners: TrackListener[];
   released: boolean;
 }
@@ -106,6 +143,10 @@ interface AudioWorkletNodeGlobal {
   ) => AudioWorkletNode;
 }
 
+interface WorkerGlobal {
+  Worker?: new (scriptURL: string | URL, options?: WorkerOptions) => Worker;
+}
+
 const INITIAL_SNAPSHOT: AudioEngineSnapshot = {
   status: "idle",
   sampleRate: null,
@@ -120,6 +161,30 @@ const PCM_CAPTURE_NODE_OPTIONS: AudioWorkletNodeOptions = {
   processorOptions: DEFAULT_PCM_CAPTURE_CONFIG,
 };
 
+const PITCH_WORKER_OPTIONS: WorkerOptions = {
+  type: "module",
+  name: PITCH_WORKER_NAME,
+};
+
+const DEFAULT_WORKER_READY_TIMEOUT_MS = 5_000;
+
+function createWorkerStartup(): WorkerStartup {
+  let resolve!: () => void;
+  let reject!: (error: AppError) => void;
+  const promise = new Promise<void>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+    settled: false,
+    timeoutId: null,
+  };
+}
+
 function mapContextFailure(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
@@ -132,6 +197,13 @@ function mapWorkletFailure(error: unknown): AppError {
     return error;
   }
   return new AppError("worklet-load-failed", error);
+}
+
+function mapWorkerFailure(error: unknown): AppError {
+  if (error instanceof AppError && error.code === "worker-failed") {
+    return error;
+  }
+  return new AppError("worker-failed", error);
 }
 
 function readContextState(context: ManagedAudioContext): ManagedAudioContextState {
@@ -171,19 +243,35 @@ export function createBrowserAudioWorkletNode(
   ) as unknown as ManagedAudioWorkletNode;
 }
 
+export function createBrowserWorker(moduleUrl: string, options: WorkerOptions): ManagedWorker {
+  const WorkerConstructor = (globalThis as unknown as WorkerGlobal).Worker;
+  if (!WorkerConstructor) {
+    throw new AppError("worker-failed", new Error("Worker is unavailable"));
+  }
+
+  try {
+    return new WorkerConstructor(moduleUrl, options) as unknown as ManagedWorker;
+  } catch (error) {
+    throw mapWorkerFailure(error);
+  }
+}
+
 export function createAudioEngine(overrides: Partial<AudioEngineDependencies> = {}): AudioEngine {
   return new AudioEngine({
     requestMicrophone: overrides.requestMicrophone ?? requestMicrophoneAccess,
     createAudioContext: overrides.createAudioContext ?? createBrowserAudioContext,
     createAudioWorkletNode: overrides.createAudioWorkletNode ?? createBrowserAudioWorkletNode,
+    createWorker: overrides.createWorker ?? createBrowserWorker,
     workletModuleUrl: overrides.workletModuleUrl ?? pcmCaptureWorkletUrl,
+    workerModuleUrl: overrides.workerModuleUrl ?? pitchWorkerUrl,
+    workerReadyTimeoutMs: overrides.workerReadyTimeoutMs ?? DEFAULT_WORKER_READY_TIMEOUT_MS,
   });
 }
 
 export class AudioEngine {
   readonly #dependencies: AudioEngineDependencies;
   readonly #listeners = new Set<AudioEngineListener>();
-  readonly #pcmListeners = new Set<PcmCaptureListener>();
+  readonly #workerFrameListeners = new Set<PitchWorkerFrameListener>();
   #snapshot: AudioEngineSnapshot = INITIAL_SNAPSHOT;
   #resources: EngineResources | null = null;
   #operation = 0;
@@ -202,9 +290,9 @@ export class AudioEngine {
     return () => this.#listeners.delete(listener);
   };
 
-  readonly subscribePcmFrames = (listener: PcmCaptureListener): (() => void) => {
-    this.#pcmListeners.add(listener);
-    return () => this.#pcmListeners.delete(listener);
+  readonly subscribeWorkerFrames = (listener: PitchWorkerFrameListener): (() => void) => {
+    this.#workerFrameListeners.add(listener);
+    return () => this.#workerFrameListeners.delete(listener);
   };
 
   async start(): Promise<void> {
@@ -325,7 +413,7 @@ export class AudioEngine {
 
     this.#disposed = true;
     this.#listeners.clear();
-    this.#pcmListeners.clear();
+    this.#workerFrameListeners.clear();
     if (this.#stopTask) {
       await this.#stopTask;
       return;
@@ -356,9 +444,17 @@ export class AudioEngine {
       sourceNode: null,
       workletNode: null,
       muteGainNode: null,
+      worker: null,
+      workerStartup: null,
+      workerReady: false,
+      lastForwardedSequence: -1,
+      lastProcessedSequence: -1,
       contextStateListener: null,
       workletMessageListener: null,
       processorErrorListener: null,
+      workerMessageListener: null,
+      workerErrorListener: null,
+      workerMessageErrorListener: null,
       trackListeners: [],
       released: false,
     };
@@ -417,6 +513,17 @@ export class AudioEngine {
     }
 
     try {
+      await this.#initializeWorker(resources);
+      if (!this.#isCurrent(operation, resources)) {
+        await this.#releaseResources(resources);
+        return;
+      }
+    } catch (error) {
+      await this.#handleStartupFailure(operation, resources, mapWorkerFailure(error));
+      return;
+    }
+
+    try {
       await context.audioWorklet.addModule(this.#dependencies.workletModuleUrl);
       if (!this.#isCurrent(operation, resources)) {
         await this.#releaseResources(resources);
@@ -470,6 +577,142 @@ export class AudioEngine {
     } catch (error) {
       await this.#handleStartupFailure(operation, resources, mapContextFailure(error));
     }
+  }
+
+  async #initializeWorker(resources: EngineResources): Promise<void> {
+    const worker = this.#dependencies.createWorker(
+      this.#dependencies.workerModuleUrl,
+      PITCH_WORKER_OPTIONS,
+    );
+    resources.worker = worker;
+
+    const messageListener: ManagedWorkerMessageListener = (event) => {
+      this.#handleWorkerMessage(resources, event.data);
+    };
+    const errorListener: EventListener = (event) => {
+      event.preventDefault();
+      this.#handleWorkerFailure(resources, event);
+    };
+    const messageErrorListener: EventListener = (event) => {
+      event.preventDefault();
+      this.#handleWorkerFailure(resources, event);
+    };
+    resources.workerMessageListener = messageListener;
+    resources.workerErrorListener = errorListener;
+    resources.workerMessageErrorListener = messageErrorListener;
+    worker.addEventListener("message", messageListener);
+    worker.addEventListener("error", errorListener);
+    worker.addEventListener("messageerror", messageErrorListener);
+
+    const startup = createWorkerStartup();
+    resources.workerStartup = startup;
+    startup.timeoutId = setTimeout(
+      () => {
+        this.#handleWorkerFailure(resources, new Error("Pitch worker startup timed out"));
+      },
+      Math.max(0, this.#dependencies.workerReadyTimeoutMs),
+    );
+
+    try {
+      worker.postMessage(
+        {
+          type: "configure",
+          protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+          sampleRate: resources.context.sampleRate,
+          frameSize: DEFAULT_PCM_CAPTURE_CONFIG.frameSize,
+        },
+        [],
+      );
+    } catch (error) {
+      this.#rejectWorkerStartup(resources, mapWorkerFailure(error));
+    }
+
+    await startup.promise;
+  }
+
+  #handleWorkerMessage(resources: EngineResources, data: unknown): void {
+    if (this.#resources !== resources || resources.released) {
+      return;
+    }
+    if (!isPitchWorkerResponse(data)) {
+      this.#handleWorkerFailure(resources, new Error("Pitch worker protocol violation"));
+      return;
+    }
+
+    if (data.type === "worker-ready") {
+      if (
+        data.sampleRate !== resources.context.sampleRate ||
+        data.frameSize !== DEFAULT_PCM_CAPTURE_CONFIG.frameSize
+      ) {
+        this.#handleWorkerFailure(resources, new Error("Pitch worker configuration mismatch"));
+        return;
+      }
+      if (resources.workerReady) {
+        return;
+      }
+
+      resources.workerReady = true;
+      this.#resolveWorkerStartup(resources);
+      return;
+    }
+
+    if (!resources.workerReady) {
+      this.#handleWorkerFailure(resources, new Error("Pitch worker responded before ready"));
+      return;
+    }
+    if (
+      data.sequence <= resources.lastProcessedSequence ||
+      data.sequence > resources.lastForwardedSequence
+    ) {
+      return;
+    }
+
+    resources.lastProcessedSequence = data.sequence;
+    for (const listener of this.#workerFrameListeners) {
+      listener(data);
+    }
+  }
+
+  #handleWorkerFailure(resources: EngineResources, error: unknown): void {
+    if (this.#resources !== resources || resources.released) {
+      return;
+    }
+
+    const appError = mapWorkerFailure(error);
+    if (resources.workerStartup && !resources.workerStartup.settled) {
+      this.#rejectWorkerStartup(resources, appError);
+      return;
+    }
+
+    void this.#failAndRelease(resources, appError.code);
+  }
+
+  #resolveWorkerStartup(resources: EngineResources): void {
+    const startup = resources.workerStartup;
+    if (!startup || startup.settled) {
+      return;
+    }
+
+    startup.settled = true;
+    if (startup.timeoutId !== null) {
+      clearTimeout(startup.timeoutId);
+      startup.timeoutId = null;
+    }
+    startup.resolve();
+  }
+
+  #rejectWorkerStartup(resources: EngineResources, error: AppError): void {
+    const startup = resources.workerStartup;
+    if (!startup || startup.settled) {
+      return;
+    }
+
+    startup.settled = true;
+    if (startup.timeoutId !== null) {
+      clearTimeout(startup.timeoutId);
+      startup.timeoutId = null;
+    }
+    startup.reject(error);
   }
 
   async #handleStartupFailure(
@@ -533,13 +776,29 @@ export class AudioEngine {
     if (
       this.#resources !== resources ||
       resources.released ||
+      !resources.worker ||
+      !resources.workerReady ||
       !isPcmCaptureMessage(data, DEFAULT_PCM_CAPTURE_CONFIG.frameSize)
     ) {
       return;
     }
+    if (data.sequence <= resources.lastForwardedSequence) {
+      return;
+    }
 
-    for (const listener of this.#pcmListeners) {
-      listener(data);
+    resources.lastForwardedSequence = data.sequence;
+    try {
+      resources.worker.postMessage(
+        {
+          type: "process-frame",
+          protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+          sequence: data.sequence,
+          samples: data.samples,
+        },
+        [data.samples.buffer],
+      );
+    } catch (error) {
+      this.#handleWorkerFailure(resources, error);
     }
   }
 
@@ -614,6 +873,40 @@ export class AudioEngine {
     for (const { track, listener } of resources.trackListeners) {
       try {
         track.removeEventListener("ended", listener);
+      } catch (error) {
+        recordError(error);
+      }
+    }
+    if (resources.workerStartup && !resources.workerStartup.settled) {
+      this.#rejectWorkerStartup(
+        resources,
+        new AppError("worker-failed", new Error("Pitch worker released during startup")),
+      );
+    }
+    if (resources.worker && resources.workerMessageListener) {
+      try {
+        resources.worker.removeEventListener("message", resources.workerMessageListener);
+      } catch (error) {
+        recordError(error);
+      }
+    }
+    if (resources.worker && resources.workerErrorListener) {
+      try {
+        resources.worker.removeEventListener("error", resources.workerErrorListener);
+      } catch (error) {
+        recordError(error);
+      }
+    }
+    if (resources.worker && resources.workerMessageErrorListener) {
+      try {
+        resources.worker.removeEventListener("messageerror", resources.workerMessageErrorListener);
+      } catch (error) {
+        recordError(error);
+      }
+    }
+    if (resources.worker) {
+      try {
+        resources.worker.terminate();
       } catch (error) {
         recordError(error);
       }
