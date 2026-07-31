@@ -85,6 +85,11 @@ export interface YinCandidate {
   readonly selection: YinCandidateSelection;
 }
 
+export interface RefinedYinCandidate extends YinCandidate {
+  readonly refinedTau: number;
+  readonly confidence: number;
+}
+
 /**
  * Selects the first bounded YIN trough below the strict threshold. If no such
  * trough exists, the original YIN fallback returns the earliest bounded global
@@ -151,6 +156,97 @@ export function selectYinCandidate(
     normalizedDifference: globalMinimumValue,
     selection: "global-minimum",
   };
+}
+
+/**
+ * Refines a discrete YIN trough with the parabola through its two neighbours.
+ *
+ * The selected search range must leave one guard lag to the right. A refinement
+ * is accepted only for a strict local minimum whose vertex stays within half a
+ * bin; otherwise the discrete lag remains the safest finite estimate.
+ *
+ * Following YIN step 5, the period position is refined from the raw difference
+ * function while confidence is a bounded dip-depth proxy from the interpolated
+ * CMND value. Confidence deliberately does not make a voiced/unvoiced decision.
+ */
+export function refineYinCandidate(
+  difference: Float64Array,
+  normalizedDifference: Float64Array,
+  candidate: YinCandidate,
+): RefinedYinCandidate {
+  assertValidYinSeries(difference, 0, "YIN difference");
+  assertValidYinSeries(normalizedDifference, 1, "YIN normalized difference");
+  if (difference.length !== normalizedDifference.length) {
+    throw new RangeError("YIN difference and normalized difference must have equal lengths");
+  }
+
+  const lastInterpolatableTau = normalizedDifference.length - 2;
+  if (
+    !Number.isSafeInteger(candidate.tau) ||
+    candidate.tau < 1 ||
+    candidate.tau > lastInterpolatableTau
+  ) {
+    throw new RangeError(
+      `candidate tau must be an integer between 1 and ${lastInterpolatableTau} with a right guard lag`,
+    );
+  }
+  if (candidate.selection !== "threshold" && candidate.selection !== "global-minimum") {
+    throw new RangeError("YIN candidate selection is invalid");
+  }
+
+  const centerValue = normalizedDifference[candidate.tau] as number;
+  if (
+    !Number.isFinite(candidate.normalizedDifference) ||
+    candidate.normalizedDifference < 0 ||
+    candidate.normalizedDifference !== centerValue
+  ) {
+    throw new RangeError("YIN candidate must match the normalized difference at its tau");
+  }
+
+  const periodMinimum = interpolateStrictParabolicMinimum(difference, candidate.tau);
+  const normalizedMinimum = interpolateStrictParabolicMinimum(normalizedDifference, candidate.tau);
+
+  return {
+    ...candidate,
+    refinedTau: candidate.tau + periodMinimum.offset,
+    confidence: clampUnitInterval(1 - normalizedMinimum.value),
+  };
+}
+
+interface ParabolicMinimum {
+  readonly offset: number;
+  readonly value: number;
+}
+
+function interpolateStrictParabolicMinimum(values: Float64Array, tau: number): ParabolicMinimum {
+  const centerValue = values[tau] as number;
+  const leftRise = (values[tau - 1] as number) - centerValue;
+  const rightRise = (values[tau + 1] as number) - centerValue;
+
+  if (!(leftRise > 0 && rightRise > 0)) {
+    return { offset: 0, value: centerValue };
+  }
+
+  // Scaling the rises before interpolation avoids overflow for finite,
+  // full-range Float64 inputs without changing the parabola's vertex.
+  const scale = Math.max(leftRise, rightRise);
+  const scaledLeftRise = leftRise / scale;
+  const scaledRightRise = rightRise / scale;
+  const scaledRiseSum = scaledLeftRise + scaledRightRise;
+  const scaledRiseDifference = scaledLeftRise - scaledRightRise;
+  const offset = scaledRiseDifference / (2 * scaledRiseSum);
+  const correctionScale = (scaledRiseDifference * scaledRiseDifference) / (8 * scaledRiseSum);
+  const value = centerValue - scale * correctionScale;
+
+  if (!Number.isFinite(offset) || !Number.isFinite(value) || Math.abs(offset) >= 0.5) {
+    return { offset: 0, value: centerValue };
+  }
+
+  return { offset, value };
+}
+
+function clampUnitInterval(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 function assertValidYinSeries(values: Float64Array, expectedOrigin: 0 | 1, label: string): void {

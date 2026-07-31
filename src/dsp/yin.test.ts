@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   calculateYinCumulativeMeanNormalizedDifference,
   calculateYinDifference,
+  type RefinedYinCandidate,
+  refineYinCandidate,
   selectYinCandidate,
   type YinCandidate,
 } from "./yin";
@@ -53,6 +55,16 @@ function selectFrameCandidate(samples: Float32Array, sampleRate: number): YinCan
   const normalizedDifference = calculateYinCumulativeMeanNormalizedDifference(difference);
 
   return selectYinCandidate(normalizedDifference, minTau, maxTau, 0.12);
+}
+
+function refineFrameCandidate(samples: Float32Array, sampleRate: number): RefinedYinCandidate {
+  const minTau = Math.ceil(sampleRate / 1200);
+  const maxTau = Math.floor(sampleRate / 65);
+  const difference = calculateYinDifference(samples, maxTau + 1);
+  const normalizedDifference = calculateYinCumulativeMeanNormalizedDifference(difference);
+  const candidate = selectYinCandidate(normalizedDifference, minTau, maxTau, 0.12);
+
+  return refineYinCandidate(difference, normalizedDifference, candidate);
 }
 
 describe("YIN difference function", () => {
@@ -375,4 +387,301 @@ describe("YIN candidate selection", () => {
       expect(() => selectYinCandidate(normalizedDifference, 1, 2, threshold)).toThrow(RangeError);
     },
   );
+});
+
+describe("YIN candidate refinement and confidence", () => {
+  it.each([
+    {
+      direction: "right",
+      normalizedDifference: new Float64Array([1, 0.9, 0.725, 0.125, 0.325]),
+      expectedTau: 3.25,
+    },
+    {
+      direction: "left",
+      normalizedDifference: new Float64Array([1, 0.9, 0.325, 0.125, 0.725]),
+      expectedTau: 2.75,
+    },
+  ])(
+    "recovers the exact vertex of a parabola shifted to the $direction",
+    ({ normalizedDifference, expectedTau }) => {
+      const difference = normalizedDifference.slice();
+      difference[0] = 0;
+      const candidate: YinCandidate = {
+        tau: 3,
+        normalizedDifference: 0.125,
+        selection: "threshold",
+      };
+      const refinedCandidate = refineYinCandidate(difference, normalizedDifference, candidate);
+
+      expect(refinedCandidate).toMatchObject(candidate);
+      expect(refinedCandidate.refinedTau).toBeCloseTo(expectedTau, 12);
+      expect(refinedCandidate.confidence).toBeCloseTo(0.9, 12);
+    },
+  );
+
+  it("uses raw difference for period position and CMND for confidence", () => {
+    const difference = new Float64Array([0, 0.9, 0.725, 0.125, 0.325]);
+    const normalizedDifference = new Float64Array([1, 0.9, 0.4, 0.2, 0.4]);
+    const candidate: YinCandidate = {
+      tau: 3,
+      normalizedDifference: 0.2,
+      selection: "threshold",
+    };
+    const refinedCandidate = refineYinCandidate(difference, normalizedDifference, candidate);
+
+    expect(refinedCandidate.refinedTau).toBeCloseTo(3.25, 12);
+    expect(refinedCandidate.confidence).toBeCloseTo(0.8, 12);
+  });
+
+  it("uses the right guard lag when the discrete candidate is at the search boundary", () => {
+    const normalizedDifference = new Float64Array([1, 0.9, 0.8, 0.725, 0.125, 0.325]);
+    const difference = normalizedDifference.slice();
+    difference[0] = 0;
+    const candidate = selectYinCandidate(normalizedDifference, 2, 4, 0.2);
+
+    expect(candidate.tau).toBe(4);
+    expect(refineYinCandidate(difference, normalizedDifference, candidate).refinedTau).toBeCloseTo(
+      4.25,
+      12,
+    );
+  });
+
+  it("keeps tau one finite when the origin and right guard are available", () => {
+    const normalizedDifference = new Float64Array([1, 0.1, 0.2]);
+    const difference = new Float64Array([0, 0.1, 0.2]);
+    const candidate: YinCandidate = {
+      tau: 1,
+      normalizedDifference: 0.1,
+      selection: "threshold",
+    };
+    const refinedCandidate = refineYinCandidate(difference, normalizedDifference, candidate);
+
+    expect(refinedCandidate.refinedTau).toBeGreaterThanOrEqual(1);
+    expect(refinedCandidate.refinedTau).toBeLessThan(2);
+    expect(refinedCandidate.confidence).toBeGreaterThanOrEqual(0);
+    expect(refinedCandidate.confidence).toBeLessThanOrEqual(1);
+  });
+
+  it.each([
+    {
+      curve: "flat",
+      normalizedDifference: new Float64Array([1, 0.8, 0.2, 0.2, 0.2]),
+      tau: 3,
+    },
+    {
+      curve: "concave",
+      normalizedDifference: new Float64Array([1, 0.8, 0.1, 0.2, 0.1]),
+      tau: 3,
+    },
+    {
+      curve: "vertex outside adjacent bins",
+      normalizedDifference: new Float64Array([1, 0.8, 0.75, 0.28125, 0.125]),
+      tau: 3,
+    },
+  ])("keeps the discrete candidate for a $curve curve", ({ normalizedDifference, tau }) => {
+    const difference = normalizedDifference.slice();
+    difference[0] = 0;
+    const candidate: YinCandidate = {
+      tau,
+      normalizedDifference: normalizedDifference[tau] as number,
+      selection: "global-minimum",
+    };
+    const refinedCandidate = refineYinCandidate(difference, normalizedDifference, candidate);
+
+    expect(refinedCandidate.refinedTau).toBe(tau);
+    expect(Number.isFinite(refinedCandidate.confidence)).toBe(true);
+  });
+
+  it.each([
+    { dipValue: 0, expectedConfidence: 1 },
+    { dipValue: 0.25, expectedConfidence: 0.75 },
+    { dipValue: 1, expectedConfidence: 0 },
+    { dipValue: 2, expectedConfidence: 0 },
+  ])(
+    "clamps a discrete CMND dip of $dipValue to confidence $expectedConfidence",
+    ({ dipValue, expectedConfidence }) => {
+      const normalizedDifference = new Float64Array([1, dipValue + 1, dipValue, dipValue + 1]);
+      const difference = new Float64Array([0, dipValue + 1, dipValue, dipValue + 1]);
+      const candidate: YinCandidate = {
+        tau: 2,
+        normalizedDifference: dipValue,
+        selection: "global-minimum",
+      };
+
+      expect(refineYinCandidate(difference, normalizedDifference, candidate).confidence).toBe(
+        expectedConfidence,
+      );
+    },
+  );
+
+  it("returns zero confidence for silence without turning the fallback into voiced evidence", () => {
+    const difference = new Float64Array(9);
+    const normalizedDifference = calculateYinCumulativeMeanNormalizedDifference(difference);
+    const candidate = selectYinCandidate(normalizedDifference, 2, 7, 0.12);
+
+    expect(refineYinCandidate(difference, normalizedDifference, candidate)).toEqual({
+      ...candidate,
+      refinedTau: candidate.tau,
+      confidence: 0,
+    });
+  });
+
+  it("keeps deterministic noise confidence low and finite", () => {
+    const refinedCandidate = refineFrameCandidate(createDeterministicNoise(4096), 48_000);
+
+    expect(refinedCandidate.selection).toBe("global-minimum");
+    expect(refinedCandidate.confidence).toBeGreaterThanOrEqual(0);
+    expect(refinedCandidate.confidence).toBeLessThan(0.2);
+  });
+
+  it.each([
+    { sampleRate: 44_100, frequencyHz: 110 },
+    { sampleRate: 44_100, frequencyHz: 220 },
+    { sampleRate: 44_100, frequencyHz: 440 },
+    { sampleRate: 44_100, frequencyHz: 880 },
+    { sampleRate: 48_000, frequencyHz: 110 },
+    { sampleRate: 48_000, frequencyHz: 220 },
+    { sampleRate: 48_000, frequencyHz: 440 },
+    { sampleRate: 48_000, frequencyHz: 880 },
+  ])(
+    "refines the $frequencyHz Hz period below half a cent at $sampleRate Hz",
+    ({ sampleRate, frequencyHz }) => {
+      const expectedTau = sampleRate / frequencyHz;
+      const refinedCandidate = refineFrameCandidate(
+        createSineFrame(sampleRate, frequencyHz),
+        sampleRate,
+      );
+      const discreteError = Math.abs(refinedCandidate.tau - expectedTau);
+      const refinedError = Math.abs(refinedCandidate.refinedTau - expectedTau);
+      const centsError = 1200 * Math.log2(expectedTau / refinedCandidate.refinedTau);
+
+      expect(refinedCandidate.selection).toBe("threshold");
+      expect(refinedError).toBeLessThan(discreteError);
+      expect(refinedError).toBeLessThan(0.025);
+      expect(Math.abs(centsError)).toBeLessThan(0.5);
+      expect(refinedCandidate.confidence).toBeGreaterThan(0.99);
+      expect(refinedCandidate.confidence).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it("does not mutate either difference function or the candidate", () => {
+    const normalizedDifference = new Float64Array([1, 0.7, 0.1, 0.05, 0.08]);
+    const difference = new Float64Array([0, 5, 1, 0.25, 1.5]);
+    const originalDifference = difference.slice();
+    const originalNormalizedDifference = normalizedDifference.slice();
+    const candidate: YinCandidate = {
+      tau: 3,
+      normalizedDifference: 0.05,
+      selection: "threshold",
+    };
+    const originalCandidate = { ...candidate };
+
+    refineYinCandidate(difference, normalizedDifference, candidate);
+
+    expect(difference).toEqual(originalDifference);
+    expect(normalizedDifference).toEqual(originalNormalizedDifference);
+    expect(candidate).toEqual(originalCandidate);
+  });
+
+  it.each([
+    new Float64Array(),
+    new Float64Array([1]),
+    new Float64Array([0, 0.5, 0.75]),
+    new Float64Array([1, -0.5, 0.75]),
+    new Float64Array([1, Number.NaN, 0.75]),
+    new Float64Array([1, Number.POSITIVE_INFINITY, 0.75]),
+  ])("rejects an invalid normalized difference function", (normalizedDifference) => {
+    const difference = new Float64Array(normalizedDifference.length);
+    const candidate: YinCandidate = {
+      tau: 1,
+      normalizedDifference: 0.5,
+      selection: "threshold",
+    };
+
+    expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([
+    new Float64Array(),
+    new Float64Array([0]),
+    new Float64Array([1, 0.5, 0.75]),
+    new Float64Array([0, -0.5, 0.75]),
+    new Float64Array([0, Number.NaN, 0.75]),
+    new Float64Array([0, Number.POSITIVE_INFINITY, 0.75]),
+  ])("rejects an invalid difference function", (difference) => {
+    const normalizedDifference = new Float64Array([1, 0.5, 0.75]);
+    const candidate: YinCandidate = {
+      tau: 1,
+      normalizedDifference: 0.5,
+      selection: "threshold",
+    };
+
+    expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+      RangeError,
+    );
+  });
+
+  it("rejects difference functions whose lengths do not match", () => {
+    const difference = new Float64Array([0, 0.5, 0.25, 0.75]);
+    const normalizedDifference = new Float64Array([1, 0.5, 0.25]);
+    const candidate: YinCandidate = {
+      tau: 1,
+      normalizedDifference: 0.5,
+      selection: "threshold",
+    };
+
+    expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([0, 3, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects candidate tau %s without two valid neighbours",
+    (tau) => {
+      const difference = new Float64Array([0, 0.5, 0.25, 0.75]);
+      const normalizedDifference = new Float64Array([1, 0.5, 0.25, 0.75]);
+      const candidate: YinCandidate = {
+        tau,
+        normalizedDifference: normalizedDifference[tau] ?? 0.25,
+        selection: "threshold",
+      };
+
+      expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+        RangeError,
+      );
+    },
+  );
+
+  it.each([0.2, -0.25, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects a candidate value that does not match the series (%s)",
+    (normalizedDifferenceValue) => {
+      const difference = new Float64Array([0, 0.5, 0.25, 0.75]);
+      const normalizedDifference = new Float64Array([1, 0.5, 0.25, 0.75]);
+      const candidate: YinCandidate = {
+        tau: 2,
+        normalizedDifference: normalizedDifferenceValue,
+        selection: "threshold",
+      };
+
+      expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+        RangeError,
+      );
+    },
+  );
+
+  it("rejects an invalid candidate selection label", () => {
+    const difference = new Float64Array([0, 0.5, 0.25, 0.75]);
+    const normalizedDifference = new Float64Array([1, 0.5, 0.25, 0.75]);
+    const candidate: YinCandidate = {
+      tau: 2,
+      normalizedDifference: 0.25,
+      selection: "invalid" as YinCandidate["selection"],
+    };
+
+    expect(() => refineYinCandidate(difference, normalizedDifference, candidate)).toThrow(
+      RangeError,
+    );
+  });
 });

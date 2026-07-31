@@ -2,6 +2,7 @@ import { bench, describe } from "vitest";
 import {
   calculateYinCumulativeMeanNormalizedDifference,
   calculateYinDifference,
+  refineYinCandidate,
   selectYinCandidate,
 } from "./yin";
 
@@ -21,9 +22,10 @@ describe("YIN stages", () => {
     calculateYinDifference(frame, maxTau + 1);
   });
 
-  bench("4096-sample difference, CMND, and bounded candidate search", () => {
+  bench("4096-sample difference, CMND, search, refinement, and confidence", () => {
     const difference = calculateYinDifference(frame, maxTau + 1);
     const normalizedDifference = calculateYinCumulativeMeanNormalizedDifference(difference);
-    selectYinCandidate(normalizedDifference, minTau, maxTau, 0.12);
+    const candidate = selectYinCandidate(normalizedDifference, minTau, maxTau, 0.12);
+    refineYinCandidate(difference, normalizedDifference, candidate);
   });
 });
