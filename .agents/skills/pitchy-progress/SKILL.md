@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-07-31`
+- Last updated: `2026-08-13`
 - Current milestone: `M2`
-- Current backlog item: `VT-012`
+- Current backlog item: `VT-013`
 - Current state: `pending`
 - Recommended route: `pitch-dsp`
 
 ## Current handoff
 
-VT-011 is complete. `src/domain/tuning.ts` validates an inclusive, decimal A4 range of 415–466 Hz and converts positive finite Hz ↔ continuous MIDI with log-domain protection for subnormal frequencies. `src/domain/pitch.ts` resolves exact half-semitone ties toward the higher note, canonicalizes signed zero, keeps nearest-note cents in `[-50, 50)`, and leaves target-note cents unbounded. `src/domain/notes.ts` accepts only safe integer MIDI keys and formats sharp/flat display names with the documented scientific convention MIDI 60 = C4; note strings are never parsed or used as internal keys. Tests cover independent C4/A4 references, custom tunings, extreme finite values, round trips, negative octaves, enharmonic spellings, cents boundaries, invalid inputs, and overflow/underflow rejection. These functions remain independent of the Worker and UI. VT-012 is next: add the noise gate and voiced decision using separate RMS, confidence, candidate, and frequency-range evidence; leave temporal smoothing, octave guarding, Canvas, and UI work to later items.
+VT-012 is complete. `src/dsp/dsp-config.ts` owns the documented YIN defaults, validates feasible sample-rate/frame/tau bounds with a right guard lag, and marks the initial 0.9 confidence threshold plus adaptive-gate parameters as `CALIBRATION_REQUIRED (VT-025)`. `src/dsp/pitch-estimator.ts` now composes AC RMS, fixed-floor early exit, YIN stages, frequency conversion, and a strict conjunction of gate, threshold-candidate, confidence, and inclusive frequency-range evidence; unvoiced results keep finite RMS/confidence while hiding frequency, and expose internal `periodicCandidateFound` evidence for later Worker-owned gate state. `src/dsp/noise-gate.ts` is a wall-clock-free pure state transition using `max(minRmsDbfs, floor + margin)`, old-threshold classification, slow floor rise, faster fall, and periodic recovery so elevated noise cannot permanently lock out a quieter tone. Deterministic tests cover 44.1/48 kHz A2–A5 within ±5 cents, harmonic and noisy tones, silence/DC/low-level/noise rejection, invalid boundaries, independent voiced evidence, non-mutation, adaptive learning, and high-noise-to-quieter-tone recovery without silence. VT-013 is next: add the finite temporal median filter for already-voiced pitch values; keep octave-jump guarding, Worker integration, Canvas, and UI work in their later items.
 
 First command: `pnpm skills:route`
 
@@ -38,7 +38,7 @@ First command: `pnpm skills:route`
 | VT-009 | complete | Equation-8 CMND, zero-sum safety, strict first-trough selection, labeled bounded fallback, deterministic signals, validation, and benchmark pass. |
 | VT-010 | complete | Raw-difference period interpolation, CMND dip-depth confidence, guard/degenerate validation, deterministic signal tests, and benchmark pass. |
 | VT-011 | complete | Finite Hz/MIDI conversion, MIDI-keyed sharp/flat note formatting, nearest/target cents, A4 range validation, and deterministic boundary tests pass. |
-| VT-012 | pending | Add voiced decision and noise gate. |
+| VT-012 | complete | Pure adaptive gate state, conjunctive voiced evidence, end-to-end single-frame YIN estimates, recovery sequences, deterministic signals, and Node/Chromium benchmarks pass. |
 | VT-013 | pending | Add temporal median filter. |
 | VT-014 | pending | Add octave-jump guard. |
 | VT-015 | pending | Add Canvas pitch trace. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 51 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
+| `pnpm check` | pass | Biome checked 58 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 11 unit files, 292 tests, including YIN stages, Hz/MIDI round trips, A4 calibration limits, negative-octave note names, cents boundaries, AC RMS/dBFS, protocols, transfers, and cleanup. |
+| `pnpm test` | pass | 14 unit files, 379 tests, including YIN stages, A2–A5 end-to-end cents accuracy, voiced evidence, adaptive-gate recovery, domain conversions, protocols, transfers, and cleanup. |
 | `pnpm test:browser` | pass | 1 browser file, 10 Chromium tests, including start and final audio cleanup after Strict Mode effect replay. |
 | `pnpm build` | pass | Vite emitted separate 1.66 kB Worker and 1.53 kB Worklet JavaScript assets; 10 entries / 243.42 KiB are precached. |
-| `pnpm test:e2e` | pass | All 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and RMS tests passed against a fresh production build. |
+| `pnpm test:e2e` | pass | The sandbox first denied the preview listener with `EACCES`; rerunning with local-listen permission passed all 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and RMS tests. |
 | `pnpm check:size` | pass | Compressed app shell is 82.7 KiB of the 500 KiB budget. |
-| `pnpm benchmark:dsp --run` | pass | Under Node 24, the full 4096-sample YIN pipeline including refinement/confidence averaged 1.42 ms in Node and 1.50 ms in Chromium; difference-only averaged 1.50/1.61 ms and AC RMS 0.030/0.031 ms. No CI threshold is asserted. |
+| `pnpm benchmark:dsp --run` | pass | Under Node 24, the 4096-sample voiced estimator averaged 1.50 ms in Node and 1.60 ms in Chromium; high-level aperiodic input averaged 1.53/1.57 ms, fixed-floor early exit 0.031/0.030 ms, and AC RMS 0.032/0.029 ms. No CI threshold is asserted. |
 
 ## Durable decisions
 
@@ -93,11 +93,15 @@ First command: `pnpm skills:route`
 - Refine a selected YIN period from the raw difference parabola while deriving confidence from the CMND dip. Require a right guard lag, accept only strict finite local minima, retain the discrete candidate for flat or degenerate curves, and keep confidence separate from later voiced gating.
 - Treat MIDI as a continuous finite 12-TET coordinate for pitch math rather than restricting it to the 0–127 wire range. Require safe integers only for target-note keys and display names, use MIDI 60 = C4 scientific notation, and keep sharp/flat strings out of internal identity.
 - Support decimal A4 tunings across the inclusive 415–466 Hz range. Resolve exact half-semitone ties toward the higher note, normalize signed zero, and use log-domain conversion where necessary to preserve representable subnormal frequencies.
+- Keep YIN configuration and calibration constants in `src/dsp/dsp-config.ts`. Reject an infeasible frequency/sample-rate/frame combination rather than silently truncating the search, and reserve one lag beyond `maxTau` for refinement.
+- Decide voiced with separate RMS gate, threshold-qualified candidate, confidence, and inclusive frequency-range evidence. Preserve finite RMS/confidence for unvoiced frames, return `frequencyHz: null`, and expose `periodicCandidateFound` only as internal evidence for later gate ownership.
+- Keep adaptive noise-floor state explicit and resettable outside the single-frame estimator. Classify with the previous threshold, learn aperiodic frames using asymmetric time-based EWMA, ignore open periodic frames, and release an elevated floor when silence or a periodic candidate below the gate proves recovery is needed.
 
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, and Dedicated Worker paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- RMS, YIN stages through confidence, and standalone Hz/MIDI/note/cents conversion are implemented; the end-to-end pitch estimate, voiced/noise-gate decisions, smoothing, Worker integration, level UI, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
+- RMS, end-to-end single-frame YIN, voiced/noise-gate decisions, and standalone Hz/MIDI/note/cents conversion are implemented; smoothing, octave guarding, Worker integration, level UI, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
+- The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.
 - PWA manifest generation and the update prompt build are covered, but installability, offline reopen, and update activation remain VT-023/VT-024 acceptance work.
 - The PWA currently uses one SVG icon; platform-specific PNG icon QA remains for the release milestone.
 - Automated browser evidence is Chromium-only on this machine; Safari, Firefox, mobile browsers, and manual visual/accessibility QA remain unverified.
