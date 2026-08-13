@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   assertValidAdaptiveNoiseGateConfig,
+  assertValidOctaveJumpGuardConfig,
+  assertValidTemporalMedianFilterConfig,
   assertValidVoicedDecisionConfig,
   assertValidYinConfig,
   DEFAULT_ADAPTIVE_NOISE_GATE_CONFIG,
   DEFAULT_MIN_CONFIDENCE,
+  DEFAULT_OCTAVE_JUMP_GUARD_CONFIG,
+  DEFAULT_TEMPORAL_MEDIAN_FILTER_CONFIG,
   DEFAULT_YIN_CONFIG,
   resolveYinTauBounds,
   type YinConfig,
@@ -25,6 +29,12 @@ describe("DSP configuration", () => {
       marginDb: 6,
       riseTimeMs: 2000,
       fallTimeMs: 500,
+    });
+    expect(DEFAULT_TEMPORAL_MEDIAN_FILTER_CONFIG).toEqual({ windowSize: 5 });
+    expect(DEFAULT_OCTAVE_JUMP_GUARD_CONFIG).toEqual({
+      jumpThresholdSemitones: 7,
+      requiredConsecutiveFrames: 3,
+      maxCandidateStepSemitones: 2,
     });
   });
 
@@ -114,5 +124,27 @@ describe("DSP configuration", () => {
     { marginDb: 6, riseTimeMs: 2000, fallTimeMs: Number.POSITIVE_INFINITY },
   ])("rejects invalid adaptive noise-gate config %#", (config) => {
     expect(() => assertValidAdaptiveNoiseGateConfig(config)).toThrow(RangeError);
+  });
+
+  it.each([0, -1, 2, 4, 2.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid temporal median window %s",
+    (windowSize) => {
+      expect(() => assertValidTemporalMedianFilterConfig({ windowSize })).toThrow(RangeError);
+    },
+  );
+
+  it.each([
+    { field: "jumpThresholdSemitones", value: 0 },
+    { field: "jumpThresholdSemitones", value: Number.NaN },
+    { field: "requiredConsecutiveFrames", value: 1 },
+    { field: "requiredConsecutiveFrames", value: 4 },
+    { field: "requiredConsecutiveFrames", value: 2.5 },
+    { field: "maxCandidateStepSemitones", value: 0 },
+    { field: "maxCandidateStepSemitones", value: Number.POSITIVE_INFINITY },
+    { field: "maxCandidateStepSemitones", value: 8 },
+  ])("rejects invalid octave-guard $field = $value", ({ field, value }) => {
+    const config = { ...DEFAULT_OCTAVE_JUMP_GUARD_CONFIG, [field]: value };
+
+    expect(() => assertValidOctaveJumpGuardConfig(config)).toThrow(RangeError);
   });
 });

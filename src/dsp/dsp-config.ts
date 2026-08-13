@@ -46,6 +46,33 @@ export const DEFAULT_ADAPTIVE_NOISE_GATE_CONFIG: Readonly<AdaptiveNoiseGateConfi
   fallTimeMs: 500,
 });
 
+export interface TemporalMedianFilterConfig {
+  readonly windowSize: number;
+}
+
+/** A short odd window rejects isolated outliers without hiding long pitch motion. */
+export const DEFAULT_TEMPORAL_MEDIAN_FILTER_CONFIG: Readonly<TemporalMedianFilterConfig> =
+  Object.freeze({
+    windowSize: 5,
+  });
+
+export interface OctaveJumpGuardConfig {
+  readonly jumpThresholdSemitones: number;
+  readonly requiredConsecutiveFrames: number;
+  readonly maxCandidateStepSemitones: number;
+}
+
+/**
+ * CALIBRATION_REQUIRED (VT-025): the 7-semitone boundary and three-frame
+ * confirmation follow the MVP plan. The 2-semitone candidate step is a
+ * synthetic-test starting point and still needs real-voice calibration.
+ */
+export const DEFAULT_OCTAVE_JUMP_GUARD_CONFIG: Readonly<OctaveJumpGuardConfig> = Object.freeze({
+  jumpThresholdSemitones: 7,
+  requiredConsecutiveFrames: 3,
+  maxCandidateStepSemitones: 2,
+});
+
 export interface YinTauBounds {
   readonly minTau: number;
   readonly maxTau: number;
@@ -139,5 +166,33 @@ export function assertValidAdaptiveNoiseGateConfig(config: AdaptiveNoiseGateConf
   }
   if (!Number.isFinite(config.fallTimeMs) || config.fallTimeMs <= 0) {
     throw new RangeError("noise-gate fallTimeMs must be finite and positive");
+  }
+}
+
+export function assertValidTemporalMedianFilterConfig(config: TemporalMedianFilterConfig): void {
+  if (
+    !Number.isSafeInteger(config.windowSize) ||
+    config.windowSize <= 0 ||
+    config.windowSize % 2 === 0
+  ) {
+    throw new RangeError("median-filter windowSize must be a positive odd safe integer");
+  }
+}
+
+export function assertValidOctaveJumpGuardConfig(config: OctaveJumpGuardConfig): void {
+  if (!Number.isFinite(config.jumpThresholdSemitones) || config.jumpThresholdSemitones <= 0) {
+    throw new RangeError("octave-guard jumpThresholdSemitones must be finite and positive");
+  }
+  if (config.requiredConsecutiveFrames !== 2 && config.requiredConsecutiveFrames !== 3) {
+    throw new RangeError("octave-guard requiredConsecutiveFrames must be two or three");
+  }
+  if (
+    !Number.isFinite(config.maxCandidateStepSemitones) ||
+    config.maxCandidateStepSemitones <= 0 ||
+    config.maxCandidateStepSemitones > config.jumpThresholdSemitones
+  ) {
+    throw new RangeError(
+      "octave-guard maxCandidateStepSemitones must be finite, positive, and no greater than the jump threshold",
+    );
   }
 }
