@@ -25,13 +25,15 @@ function advanceTone(
 }
 
 describe("stateful pitch pipeline", () => {
-  it("combines YIN, gate, octave guard, and median smoothing for a stable tone", () => {
+  it("combines pitch tracking with one-second stability and sustained-note state", () => {
     let state = createPitchPipelineState();
     const midi: number[] = [];
+    let finalStep: ReturnType<typeof advancePitchPipeline> | null = null;
 
-    for (let sequence = 0; sequence < 7; sequence += 1) {
+    for (let sequence = 0; sequence < 12; sequence += 1) {
       const step = advanceTone(state, 440, sequence);
       state = step.state;
+      finalStep = step;
       expect(step.estimate.voiced).toBe(true);
       expect(step.estimate.frequencyHz).toBeCloseTo(440, 0);
       expect(step.estimate.confidence).toBeGreaterThan(0.9);
@@ -42,8 +44,17 @@ describe("stateful pitch pipeline", () => {
       }
     }
 
-    expect(midi).toHaveLength(7);
+    expect(midi).toHaveLength(12);
     expect(midi.every((value) => Math.abs(value - 69) < 0.05)).toBe(true);
+    expect(finalStep?.estimate.validFrameRatio).toBe(1);
+    expect(finalStep?.estimate.state).toBe("stable");
+    expect(finalStep?.estimate.stabilityScore).toBeGreaterThan(99.9);
+    expect(finalStep?.estimate.pitchSpreadCents).toBeLessThan(0.01);
+    expect(Math.abs(finalStep?.estimate.trendCentsPerSecond ?? 1)).toBeLessThan(0.01);
+    expect(finalStep?.estimate.continuousVoicedDurationMs).toBeCloseTo(512, 10);
+    expect(finalStep?.estimate.currentStableDurationMs).toBeGreaterThan(0);
+    expect(finalStep?.estimate.minStableMidi).toBeCloseTo(69, 1);
+    expect(finalStep?.estimate.maxStableMidi).toBeCloseTo(69, 1);
   });
 
   it("withholds a large jump until confirmation, then resets smoothing before accepting it", () => {
@@ -59,9 +70,15 @@ describe("stateful pitch pipeline", () => {
 
     expect(firstJump.estimate.voiced).toBe(true);
     expect(firstJump.estimate.midi).toBeNull();
+    expect(firstJump.estimate.state).toBe("onset");
+    expect(firstJump.state.stability.observations.at(-1)?.midi).toBeNull();
     expect(secondJump.estimate.midi).toBeNull();
     expect(confirmedJump.estimate.midi).toBeCloseTo(81, 1);
+    expect(confirmedJump.estimate.stabilityScore).toBeNull();
+    expect(confirmedJump.estimate.state).toBe("onset");
     expect(confirmedJump.state.smoothing.recentMidi).toHaveLength(1);
+    expect(confirmedJump.state.stability.observations).toHaveLength(1);
+    expect(confirmedJump.state.stability.observations[0]?.midi).toBeCloseTo(81, 1);
   });
 
   it("emits a gap and clears temporal state at silence before accepting a new onset", () => {
@@ -81,7 +98,16 @@ describe("stateful pitch pipeline", () => {
     });
     expect(silence.state.octaveGuard.lastAcceptedMidi).toBeNull();
     expect(silence.state.smoothing.recentMidi).toEqual([]);
+    expect(silence.state.stability.observations).toEqual([]);
+    expect(silence.estimate).toMatchObject({
+      stabilityScore: null,
+      validFrameRatio: 0,
+      continuousVoicedDurationMs: 0,
+      currentStableDurationMs: 0,
+      state: "silent",
+    });
     expect(newOnset.estimate.midi).toBeCloseTo(57, 1);
+    expect(newOnset.estimate.state).toBe("onset");
   });
 
   it("does not mutate caller-owned state or PCM", () => {
@@ -95,5 +121,28 @@ describe("stateful pitch pipeline", () => {
     expect(state).toEqual(stateBefore);
     expect(frame).toEqual(frameBefore);
     expect(step.state).not.toBe(state);
+  });
+
+  it("rejects invalid or regressing timing without mutating inputs", () => {
+    const state = createPitchPipelineState();
+    const frame = createSineFrame(440, 0);
+
+    expect(() =>
+      advancePitchPipeline(state, frame, 48_000, DEFAULT_YIN_CONFIG, {
+        elapsedMs: 0,
+        timestampMs: 10,
+      }),
+    ).toThrow(RangeError);
+
+    const first = advancePitchPipeline(state, frame, 48_000, DEFAULT_YIN_CONFIG, {
+      elapsedMs: 40,
+      timestampMs: 100,
+    });
+    expect(() =>
+      advancePitchPipeline(first.state, frame, 48_000, DEFAULT_YIN_CONFIG, {
+        elapsedMs: 40,
+        timestampMs: 99,
+      }),
+    ).toThrow(RangeError);
   });
 });

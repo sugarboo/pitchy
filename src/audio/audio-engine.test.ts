@@ -29,6 +29,8 @@ function createProcessedFrame(
     Omit<PitchFrameProcessedMessage, "type" | "protocolVersion" | "sequence">
   > = {},
 ): PitchFrameProcessedMessage {
+  const voiced = overrides.voiced ?? false;
+  const midi = overrides.midi ?? (voiced ? 69 : null);
   return {
     type: "frame-processed",
     protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
@@ -41,8 +43,17 @@ function createProcessedFrame(
     rmsDbfs: SILENCE_DBFS,
     frequencyHz: null,
     confidence: 0,
-    voiced: false,
-    midi: null,
+    voiced,
+    midi,
+    stabilityScore: voiced ? 100 : null,
+    pitchSpreadCents: voiced ? 0 : null,
+    trendCentsPerSecond: voiced ? 0 : null,
+    validFrameRatio: voiced ? 1 : 0,
+    continuousVoicedDurationMs: voiced ? 400 : 0,
+    currentStableDurationMs: voiced ? 100 : 0,
+    minStableMidi: voiced ? midi : null,
+    maxStableMidi: voiced ? midi : null,
+    state: voiced ? "stable" : "silent",
     ...overrides,
   };
 }

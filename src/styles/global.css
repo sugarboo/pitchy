@@ -361,13 +361,18 @@ h1 {
   font-weight: 750;
 }
 
-.pitch-readout:not(.is-detected) .note-name,
-.pitch-readout:not(.is-detected) .frequency {
+.pitch-readout.is-waiting .note-name,
+.pitch-readout.is-waiting .frequency,
+.pitch-readout.is-silent .note-name,
+.pitch-readout.is-silent .frequency,
+.pitch-readout.is-low-confidence .note-name,
+.pitch-readout.is-low-confidence .frequency {
   color: var(--color-muted);
 }
 
 .pitch-readout.is-unstable .detection-state,
-.pitch-readout.is-stabilizing .detection-state {
+.pitch-readout.is-onset .detection-state,
+.pitch-readout.is-low-confidence .detection-state {
   color: var(--color-warning);
 }
 

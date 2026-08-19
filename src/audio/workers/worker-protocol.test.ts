@@ -29,6 +29,15 @@ const VALID_PROCESSED_FRAME = {
   confidence: 0.99,
   voiced: true,
   midi: 69,
+  stabilityScore: 96,
+  pitchSpreadCents: 3,
+  trendCentsPerSecond: -2,
+  validFrameRatio: 1,
+  continuousVoicedDurationMs: 600,
+  currentStableDurationMs: 240,
+  minStableMidi: 68.9,
+  maxStableMidi: 69.1,
+  state: "stable",
 } as const;
 
 function createSineFrame(frequencyHz: number, sequence = 0): Float32Array {
@@ -106,6 +115,13 @@ describe("pitch worker protocol", () => {
       confidence: 0,
       voiced: false,
       midi: null,
+      stabilityScore: null,
+      pitchSpreadCents: null,
+      trendCentsPerSecond: null,
+      validFrameRatio: 0,
+      continuousVoicedDurationMs: 0,
+      currentStableDurationMs: 0,
+      state: "silent",
     };
 
     expect(isPitchWorkerReadyMessage(ready)).toBe(true);
@@ -121,6 +137,21 @@ describe("pitch worker protocol", () => {
     expect(isPitchWorkerResponse({ ...silence, midi: 69 })).toBe(false);
     expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, midi: Number.NaN })).toBe(false);
     expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, rmsDbfs: SILENCE_DBFS })).toBe(false);
+    expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, stabilityScore: 101 })).toBe(false);
+    expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, pitchSpreadCents: null })).toBe(false);
+    expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, validFrameRatio: 1.1 })).toBe(false);
+    expect(
+      isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, continuousVoicedDurationMs: -1 }),
+    ).toBe(false);
+    expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, currentStableDurationMs: 601 })).toBe(
+      false,
+    );
+    expect(
+      isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, minStableMidi: 70, maxStableMidi: 69 }),
+    ).toBe(false);
+    expect(isPitchWorkerResponse({ ...VALID_PROCESSED_FRAME, state: "unknown" })).toBe(false);
+    expect(isPitchWorkerResponse({ ...silence, state: "stable" })).toBe(false);
+    expect(isPitchWorkerResponse({ ...silence, validFrameRatio: 0.5 })).toBe(false);
     expect(
       isPitchWorkerResponse({
         ...VALID_PROCESSED_FRAME,
@@ -216,6 +247,12 @@ describe("pitch worker runtime", () => {
       expect(processed.frequencyHz).toBeCloseTo(440, 0);
       expect(processed.midi).toBeCloseTo(69, 1);
       expect(processed.confidence).toBeGreaterThan(0.9);
+      expect(processed.state).toBe("onset");
+      expect(processed.stabilityScore).toBeNull();
+      expect(processed.continuousVoicedDurationMs).toBeCloseTo(
+        (VALID_CONFIG.hopSize / sampleRate) * 1000,
+        10,
+      );
       expect(isPitchFrameProcessedMessage(processed)).toBe(true);
     },
   );

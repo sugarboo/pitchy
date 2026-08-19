@@ -54,6 +54,15 @@ function createFrame(sequence: number, midi: number | null = 69): PitchFrameProc
     confidence: voiced ? 0.99 : 0,
     voiced,
     midi,
+    stabilityScore: voiced ? 100 : null,
+    pitchSpreadCents: voiced ? 0 : null,
+    trendCentsPerSecond: voiced ? 0 : null,
+    validFrameRatio: voiced ? 1 : 0,
+    continuousVoicedDurationMs: voiced ? 400 : 0,
+    currentStableDurationMs: voiced ? 100 : 0,
+    minStableMidi: voiced ? midi : null,
+    maxStableMidi: voiced ? midi : null,
+    state: voiced ? "stable" : "silent",
   };
 }
 

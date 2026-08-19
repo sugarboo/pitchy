@@ -395,6 +395,15 @@ describe("App", () => {
         confidence: 0.99,
         voiced: true,
         midi: 69,
+        stabilityScore: 96,
+        pitchSpreadCents: 3.2,
+        trendCentsPerSecond: -2.5,
+        validFrameRatio: 1,
+        continuousVoicedDurationMs: 640,
+        currentStableDurationMs: 240,
+        minStableMidi: 68.9,
+        maxStableMidi: 69.1,
+        state: "stable",
       });
     });
 
@@ -403,6 +412,11 @@ describe("App", () => {
     expect(document.querySelector(".cents-value strong")?.textContent).toBe("0.0 音分");
     expect(document.querySelector(".readout-metrics")?.textContent).toContain("99%");
     expect(document.querySelector(".readout-metrics")?.textContent).toContain("-6.0 dBFS");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("96 / 100");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("3.2 音分");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("−2.5 音分/秒");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.6 秒");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.2 秒");
     expect(pitchTrace.size).toBe(1);
     expect(pitchTrace.at(0).midi).toBe(69);
 
@@ -410,7 +424,8 @@ describe("App", () => {
     await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
 
     expect(document.querySelector(".cents-value")?.textContent).toContain("Note-center deviation");
-    expect(document.querySelector(".detection-state")?.textContent).toBe("Stable pitch detected");
+    expect(document.querySelector(".detection-state")?.textContent).toBe("Stable");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("Pitch spread");
     expect(createAudioContext).toHaveBeenCalledOnce();
     expect(createWorker).toHaveBeenCalledOnce();
     expect(pitchTrace.size).toBe(1);
@@ -446,11 +461,20 @@ describe("App", () => {
         confidence: 0.2,
         voiced: false,
         midi: null,
+        stabilityScore: null,
+        pitchSpreadCents: null,
+        trendCentsPerSecond: null,
+        validFrameRatio: 0,
+        continuousVoicedDurationMs: 0,
+        currentStableDurationMs: 0,
+        minStableMidi: null,
+        maxStableMidi: null,
+        state: "low-confidence",
       });
     });
 
     expect(document.querySelector(".note-name")?.textContent).toBe("—");
-    expect(document.querySelector(".detection-state")?.textContent).toBe("无法稳定检测");
+    expect(document.querySelector(".detection-state")?.textContent).toBe("信号不足");
     expect(document.querySelector(".readout-metrics")?.textContent).toContain("20%");
     expect(document.querySelector(".readout-metrics")?.textContent).toContain("-20.0 dBFS");
   });

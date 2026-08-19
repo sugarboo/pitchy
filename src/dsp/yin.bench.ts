@@ -26,7 +26,7 @@ for (let index = 0; index < frame.length; index += 1) {
   noiseState = (Math.imul(noiseState, 1_664_525) + 1_013_904_223) >>> 0;
   noiseFrame[index] = (noiseState / 0x1_00_00_00_00) * 2 - 1;
 }
-for (let index = 0; index < 5; index += 1) {
+for (let index = 0; index < 24; index += 1) {
   warmedPipelineState = advancePitchPipeline(warmedPipelineState, frame, sampleRate).state;
 }
 

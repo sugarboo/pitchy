@@ -69,11 +69,20 @@ export function createPitchWorkerRuntime(
         return;
       }
 
-      const step = advancePitchPipeline(pipelineState, value.samples, config.sampleRate, yinConfig);
-      pipelineState = step.state;
-      lastProcessedSequence = value.sequence;
       const timestampMs =
         ((config.frameSize + value.sequence * config.hopSize) / config.sampleRate) * 1000;
+      const step = advancePitchPipeline(
+        pipelineState,
+        value.samples,
+        config.sampleRate,
+        yinConfig,
+        {
+          elapsedMs: (config.hopSize / config.sampleRate) * 1000,
+          timestampMs,
+        },
+      );
+      pipelineState = step.state;
+      lastProcessedSequence = value.sequence;
       publishResponse({
         type: "frame-processed",
         protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,

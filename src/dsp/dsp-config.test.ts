@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   assertValidAdaptiveNoiseGateConfig,
   assertValidOctaveJumpGuardConfig,
+  assertValidStabilityConfig,
   assertValidTemporalMedianFilterConfig,
   assertValidVoicedDecisionConfig,
   assertValidYinConfig,
   DEFAULT_ADAPTIVE_NOISE_GATE_CONFIG,
   DEFAULT_MIN_CONFIDENCE,
   DEFAULT_OCTAVE_JUMP_GUARD_CONFIG,
+  DEFAULT_STABILITY_CONFIG,
   DEFAULT_TEMPORAL_MEDIAN_FILTER_CONFIG,
   DEFAULT_YIN_CONFIG,
   resolveYinTauBounds,
@@ -35,6 +37,16 @@ describe("DSP configuration", () => {
       jumpThresholdSemitones: 7,
       requiredConsecutiveFrames: 3,
       maxCandidateStepSemitones: 2,
+    });
+    expect(DEFAULT_STABILITY_CONFIG).toEqual({
+      windowDurationMs: 1000,
+      minimumValidFrames: 8,
+      minimumValidRatio: 0.6,
+      zeroScoreSpreadCents: 80,
+      zeroScoreTrendCentsPerSecond: 100,
+      onsetDurationMs: 300,
+      stableEnterScore: 75,
+      stableExitScore: 60,
     });
   });
 
@@ -146,5 +158,24 @@ describe("DSP configuration", () => {
     const config = { ...DEFAULT_OCTAVE_JUMP_GUARD_CONFIG, [field]: value };
 
     expect(() => assertValidOctaveJumpGuardConfig(config)).toThrow(RangeError);
+  });
+
+  it.each([
+    { field: "windowDurationMs", value: 0 },
+    { field: "windowDurationMs", value: Number.NaN },
+    { field: "minimumValidFrames", value: 1 },
+    { field: "minimumValidFrames", value: 2.5 },
+    { field: "minimumValidRatio", value: 0 },
+    { field: "minimumValidRatio", value: 1.1 },
+    { field: "zeroScoreSpreadCents", value: 0 },
+    { field: "zeroScoreTrendCentsPerSecond", value: Number.POSITIVE_INFINITY },
+    { field: "onsetDurationMs", value: -1 },
+    { field: "stableEnterScore", value: 101 },
+    { field: "stableExitScore", value: -1 },
+    { field: "stableExitScore", value: 76 },
+  ])("rejects invalid stability $field = $value", ({ field, value }) => {
+    const config = { ...DEFAULT_STABILITY_CONFIG, [field]: value };
+
+    expect(() => assertValidStabilityConfig(config)).toThrow(RangeError);
   });
 });

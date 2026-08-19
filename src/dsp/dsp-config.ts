@@ -73,6 +73,33 @@ export const DEFAULT_OCTAVE_JUMP_GUARD_CONFIG: Readonly<OctaveJumpGuardConfig> =
   maxCandidateStepSemitones: 2,
 });
 
+export interface StabilityConfig {
+  readonly windowDurationMs: number;
+  readonly minimumValidFrames: number;
+  readonly minimumValidRatio: number;
+  readonly zeroScoreSpreadCents: number;
+  readonly zeroScoreTrendCentsPerSecond: number;
+  readonly onsetDurationMs: number;
+  readonly stableEnterScore: number;
+  readonly stableExitScore: number;
+}
+
+/**
+ * CALIBRATION_REQUIRED (VT-025): these values provide deterministic monotonic
+ * behavior for synthetic steady tones, vibrato, drift, and missing frames.
+ * They are not calibrated claims about vocal quality or pedagogy.
+ */
+export const DEFAULT_STABILITY_CONFIG: Readonly<StabilityConfig> = Object.freeze({
+  windowDurationMs: 1000,
+  minimumValidFrames: 8,
+  minimumValidRatio: 0.6,
+  zeroScoreSpreadCents: 80,
+  zeroScoreTrendCentsPerSecond: 100,
+  onsetDurationMs: 300,
+  stableEnterScore: 75,
+  stableExitScore: 60,
+});
+
 export interface YinTauBounds {
   readonly minTau: number;
   readonly maxTau: number;
@@ -193,6 +220,46 @@ export function assertValidOctaveJumpGuardConfig(config: OctaveJumpGuardConfig):
   ) {
     throw new RangeError(
       "octave-guard maxCandidateStepSemitones must be finite, positive, and no greater than the jump threshold",
+    );
+  }
+}
+
+export function assertValidStabilityConfig(config: StabilityConfig): void {
+  if (!Number.isFinite(config.windowDurationMs) || config.windowDurationMs <= 0) {
+    throw new RangeError("stability windowDurationMs must be finite and positive");
+  }
+  if (!Number.isSafeInteger(config.minimumValidFrames) || config.minimumValidFrames < 2) {
+    throw new RangeError("stability minimumValidFrames must be a safe integer of at least two");
+  }
+  if (
+    !Number.isFinite(config.minimumValidRatio) ||
+    config.minimumValidRatio <= 0 ||
+    config.minimumValidRatio > 1
+  ) {
+    throw new RangeError("stability minimumValidRatio must be finite and in (0, 1]");
+  }
+  if (!Number.isFinite(config.zeroScoreSpreadCents) || config.zeroScoreSpreadCents <= 0) {
+    throw new RangeError("stability zeroScoreSpreadCents must be finite and positive");
+  }
+  if (
+    !Number.isFinite(config.zeroScoreTrendCentsPerSecond) ||
+    config.zeroScoreTrendCentsPerSecond <= 0
+  ) {
+    throw new RangeError("stability zeroScoreTrendCentsPerSecond must be finite and positive");
+  }
+  if (!Number.isFinite(config.onsetDurationMs) || config.onsetDurationMs < 0) {
+    throw new RangeError("stability onsetDurationMs must be finite and non-negative");
+  }
+  if (
+    !Number.isFinite(config.stableEnterScore) ||
+    !Number.isFinite(config.stableExitScore) ||
+    config.stableEnterScore < 0 ||
+    config.stableEnterScore > 100 ||
+    config.stableExitScore < 0 ||
+    config.stableExitScore > config.stableEnterScore
+  ) {
+    throw new RangeError(
+      "stability scores must be finite within [0, 100] with exit no greater than enter",
     );
   }
 }

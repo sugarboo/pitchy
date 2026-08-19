@@ -1,8 +1,9 @@
 import type { AppErrorCode } from "../audio/audio-types";
+import type { PracticePitchState } from "../domain/stability";
 import type { BrowserCapabilityId } from "./browser-capabilities";
 
 export type Locale = "zh-CN" | "en";
-export type PitchReadoutState = "waiting" | "detected" | "silent" | "stabilizing" | "unstable";
+export type PitchReadoutState = "waiting" | PracticePitchState;
 
 export interface ErrorMessage {
   title: string;
@@ -52,6 +53,15 @@ export interface Messages {
   centsFromNearestLabel: string;
   confidenceLabel: string;
   inputLevelLabel: string;
+  stabilityLabel: string;
+  pitchSpreadLabel: string;
+  pitchTrendLabel: string;
+  continuousVoiceLabel: string;
+  stableDurationLabel: string;
+  stableRangeLabel: string;
+  centsUnit: string;
+  centsPerSecondUnit: string;
+  secondsUnit: string;
   notAvailable: string;
   previewCaption: string;
   foundationStatusLabel: string;
@@ -121,16 +131,26 @@ const zhCn: Messages = {
   deviceOnly: "仅本机",
   pitchStates: {
     waiting: "等待开始",
-    detected: "已检测到稳定音高",
-    silent: "等待发声",
-    stabilizing: "正在确认音高变化",
-    unstable: "无法稳定检测",
+    silent: "未发声",
+    onset: "起音中",
+    stable: "稳定",
+    unstable: "波动",
+    "low-confidence": "信号不足",
   },
   centsFromNearestLabel: "音中心偏差",
   confidenceLabel: "检测置信度",
   inputLevelLabel: "输入电平",
+  stabilityLabel: "稳定度",
+  pitchSpreadLabel: "音高离散",
+  pitchTrendLabel: "音高趋势",
+  continuousVoiceLabel: "连续发声",
+  stableDurationLabel: "本次稳定时长",
+  stableRangeLabel: "稳定音域",
+  centsUnit: "音分",
+  centsPerSecondUnit: "音分/秒",
+  secondsUnit: "秒",
   notAvailable: "—",
-  previewCaption: "YIN 音高分析、倍频保护与轨迹绘制均在本机完成",
+  previewCaption: "YIN、倍频保护、稳定度与轨迹绘制均在本机完成",
   foundationStatusLabel: "第一阶段状态",
   runtimeEyebrow: "运行环境",
   capabilityHeading: "浏览器能力检测",
@@ -153,7 +173,7 @@ const zhCn: Messages = {
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "音频线程、音高引擎、实时轨迹与主读数已接通；稳定度和练习模式正在按依赖顺序推进。",
+  scopeNote: "音频线程、音高引擎、实时轨迹、主读数与长音稳定度已接通；练习模式正在按依赖顺序推进。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -268,16 +288,26 @@ const en: Messages = {
   deviceOnly: "On-device",
   pitchStates: {
     waiting: "Waiting to start",
-    detected: "Stable pitch detected",
-    silent: "Waiting for voice",
-    stabilizing: "Confirming pitch change",
-    unstable: "Unable to detect steadily",
+    silent: "Silent",
+    onset: "Onset",
+    stable: "Stable",
+    unstable: "Unstable",
+    "low-confidence": "Signal insufficient",
   },
   centsFromNearestLabel: "Note-center deviation",
   confidenceLabel: "Detection confidence",
   inputLevelLabel: "Input level",
+  stabilityLabel: "Stability",
+  pitchSpreadLabel: "Pitch spread",
+  pitchTrendLabel: "Pitch trend",
+  continuousVoiceLabel: "Continuous voice",
+  stableDurationLabel: "Current stable duration",
+  stableRangeLabel: "Stable range",
+  centsUnit: "cents",
+  centsPerSecondUnit: "cents/s",
+  secondsUnit: "s",
   notAvailable: "—",
-  previewCaption: "YIN analysis, octave guarding, and trace rendering all stay on-device",
+  previewCaption: "YIN, octave guarding, stability, and trace rendering all stay on-device",
   foundationStatusLabel: "Foundation stage status",
   runtimeEyebrow: "Runtime",
   capabilityHeading: "Browser capabilities",
@@ -301,7 +331,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "Audio threads, the pitch engine, live trace, and primary readings are connected. Stability and practice modes are next.",
+    "Audio threads, pitch engine, live trace, primary readings, and sustained-note stability are connected. Practice modes are next.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

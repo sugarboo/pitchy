@@ -13,13 +13,13 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 - Last updated: `2026-08-19`
 - Current milestone: `M3`
-- Current backlog item: `VT-017`
+- Current backlog item: `VT-018`
 - Current state: `pending`
 - Recommended route: `practice-ui`
 
 ## Current handoff
 
-VT-016 is complete. `src/dsp/pitch-pipeline.ts` composes adaptive gating, YIN, continuous-MIDI conversion, octave guarding, and five-frame temporal median state for one Worker session; pending large jumps emit null MIDI evidence until confirmation. Worker protocol v3 now configures `hopSize` and returns a deterministic session timestamp plus finite RMS/dBFS, raw frequency/confidence/voiced evidence, and guarded/smoothed MIDI without PCM. `LivePitchStore` writes every result directly to the imperative Canvas trace while publishing a separately trailing-throttled React snapshot at no more than 25 Hz and resetting both streams at session boundaries. The localized primary readout displays a coherent note, smoothed Hz, note-center cents, confidence, input dBFS, and distinct waiting/silent/stabilizing/unsteady states. Browser and production E2E coverage prove that a real built Worklet/Worker chain turns the synthetic 440 Hz stream into A4 while theme and locale changes retain the same audio session. VT-017 is next: add deterministic approximately one-second stability metrics and the sustained-note state machine, then integrate their small outputs without moving per-frame history into React.
+VT-017 is complete. `src/domain/stability.ts` maintains an immutable approximately one-second window over guarded/smoothed continuous MIDI, derives median absolute pitch spread plus a Theil-Sen trend, and maps their separately monotonic bounded components to a 0–100 stability score only after minimum evidence is available. The sustained-note reducer distinguishes silent/onset/stable/unstable/low-confidence with enter/exit hysteresis, tracks continuous voiced and current stable durations, and retains the session's stable MIDI range. The Worker-owned pitch pipeline resets stability evidence on silence and confirmed jumps while preserving session range, and exact protocol v4 exposes only finite small metrics without PCM. The localized readout now presents stability, spread, trend, continuous voice, stable duration, and stable range; production E2E proves a built 440 Hz Worklet/Worker stream reaches A4 and the stable state. VT-018 is next: implement free-practice mode using nearest-note center deviation terminology and current local tuning without introducing target-note scoring.
 
 First command: `pnpm skills:route`
 
@@ -43,7 +43,7 @@ First command: `pnpm skills:route`
 | VT-014 | complete | Strict seven-semitone guard, clustered three-frame confirmation, unvoiced reset, median-control contract, octave-rate tests, and Node/Chromium benchmarks pass. |
 | VT-015 | complete | Fixed-capacity imperative trace storage, ten-second Canvas rendering, DPR/theme/visibility handling, and browser regressions pass without per-frame React state. |
 | VT-016 | complete | Stateful Worker pitch pipeline, protocol v3, direct Canvas feed, throttled localized readout, and production 440 Hz E2E pass. |
-| VT-017 | pending | Add stability and sustained-note state machine. |
+| VT-017 | complete | Robust one-second stability statistics, five-state sustained-note reducer, Worker protocol v4 integration, localized readout, deterministic tests, E2E, and Node/Chromium benchmarks pass. |
 | VT-018 | pending | Complete free-practice mode. |
 | VT-019 | pending | Complete target-note mode. |
 | VT-020 | pending | Add session aggregation. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 76 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
+| `pnpm check` | pass | Biome checked 79 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 20 unit files, 467 tests, including stateful pipeline composition, v3 protocol validation, Worker sequence guards, high/low-rate stream separation, session reset, prior DSP stages, transfers, and cleanup. |
-| `pnpm test:browser` | pass | 2 browser files, 15 Chromium tests, including live A4/Hz/cents/confidence/dBFS rendering, unvoiced fail-closed text, direct trace feed, retained audio across locale/theme changes, Canvas DPR/coalescing/gaps/visibility, and Strict Mode cleanup. |
-| `pnpm build` | pass | Vite emitted separate 14.07 kB full-DSP Worker and 1.53 kB Worklet assets; 10 entries / 267.10 KiB are precached. |
-| `pnpm test:e2e` | pass | All 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and production synthetic-audio tests pass; the built local pipeline renders the 440 Hz oscillator as A4. |
-| `pnpm check:size` | pass | Compressed app shell is 89.7 KiB of the 500 KiB budget. |
-| `pnpm benchmark:dsp --run` | pass | Under Node 24, the full stateful 4096-sample pitch pipeline averaged 1.52 ms in Node and 1.56 ms in Chromium; the standalone voiced YIN estimate averaged 1.46/1.55 ms. No environment-sensitive CI threshold is asserted. |
+| `pnpm test` | pass | 21 unit files, 495 tests, including robust stability/vibrato/drift/missing-evidence sequences, state hysteresis and durations, pipeline resets, exact v4 protocol validation, and all prior DSP/audio lifecycle coverage. |
+| `pnpm test:browser` | pass | 2 browser files, 15 Chromium tests, including localized live stability/spread/trend/durations/range, unvoiced fail-closed text, retained audio across locale/theme changes, Canvas behavior, and Strict Mode cleanup. |
+| `pnpm build` | pass | Vite emitted separate 21.64 kB full-DSP Worker and 1.53 kB Worklet assets; 10 entries / 278.01 KiB are precached. |
+| `pnpm test:e2e` | pass | All 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and production synthetic-audio tests pass; the built 440 Hz stream renders A4 and reaches the stable state with a finite score. |
+| `pnpm check:size` | pass | Compressed app shell is 92.1 KiB of the 500 KiB budget. |
+| `pnpm benchmark:dsp --run` | pass | Under Node 24, the full 4096-sample pipeline with stability averaged 1.48 ms in Node and 1.61 ms in Chromium. Standalone 4096-frame stability/state sequences averaged 145.78/141.04 ms total (about 0.036/0.034 ms per frame). No environment-sensitive CI threshold is asserted. |
 
 ## Durable decisions
 
@@ -87,7 +87,7 @@ First command: `pnpm skills:route`
 - Use reversible `AudioEngine.stop()` in React effect cleanup because root Strict Mode replays effects while retaining component state. Reserve permanent `dispose()` for ownership boundaries that cannot be replayed.
 - Build the pitch Worker through its own Vite `?worker&url` path and start it as a named module Worker. Require a versioned configure/ready handshake before loading the Worklet, transfer each validated `Float32Array` once, correlate small result messages by sequence, and terminate the Worker with the rest of the audio graph.
 - Measure input level as AC RMS over a mean-centered frame using two passes, so DC bias is excluded without the cancellation error of `E[x²] - mean²` or mutation of transferred PCM. Preserve positive dBFS for float over-range input, and use `-160 dBFS` only as a finite silence/transport floor.
-- Treat Worker protocol v3 as an exact runtime boundary: configure sample rate, frame size, and hop size together; reject non-finite PCM or pitch evidence, require RMS/dBFS consistency and exact keys, and never allow raw `samples` into the public main-thread result subscription. Derive session-relative frame-end timestamps from sequence, frame size, hop size, and actual sample rate.
+- Treat Worker protocol v4 as an exact runtime boundary: configure sample rate, frame size, and hop size together; reject non-finite PCM, pitch, stability, duration, state, or range evidence; require RMS/dBFS consistency and exact keys; and never allow raw `samples` into the public main-thread result subscription. Derive session-relative frame-end timestamps from sequence, frame size, hop size, and actual sample rate.
 - Calculate the YIN squared difference over a fixed first-half integration window so every requested lag has equal support. Keep `tau` as the output index, accumulate into `Float64Array`, and validate finite PCM before the quadratic loop.
 - Keep YIN CMND finite by mapping a zero cumulative mean to one and never clamp legitimate values above one. Search inclusive tau bounds with a strict threshold and earliest-flat-trough rule; preserve the original bounded global-minimum fallback with an explicit selection label so it cannot be confused with voiced evidence.
 - Refine a selected YIN period from the raw difference parabola while deriving confidence from the CMND dip. Require a right guard lag, accept only strict finite local minima, retain the discrete candidate for flat or degenerate curves, and keep confidence separate from later voiced gating.
@@ -103,14 +103,17 @@ First command: `pnpm skills:route`
 - Own adaptive gate, octave guard, and median-filter state inside one Worker runtime session. Convert accepted raw frequency to continuous MIDI before guarding; freeze downstream smoothing while a large jump is pending, emit a null trace observation, and reset smoothing before inserting a confirmed jump or new onset.
 - Feed every validated Worker result into `PitchTraceBuffer`, but expose React through `LivePitchStore` at a trailing maximum of 25 Hz. Clear pending timers, the published snapshot, and trace history together whenever a fresh session starts or stops; pause/resume retains the same timeline.
 - Keep the primary readout coherent by deriving displayed note, Hz, and nearest-note cents from the same guarded/smoothed MIDI value at the default A4 = 440 Hz. Show confidence and approximate dBFS independently even when no stable note is displayed; user-selectable tuning remains a later practice/settings integration.
+- Derive stability from an immutable approximately one-second guarded/smoothed MIDI window using median absolute deviation in cents and a Theil-Sen cents-per-second trend. Require eight valid frames and a 0.6 valid ratio, then score with the lower of separately monotonic spread and trend components; all initial thresholds remain `CALIBRATION_REQUIRED` for VT-025.
+- Own the stability window and sustained-note reducer inside the Worker session. Reset the window on unvoiced boundaries and confirmed guarded jumps, preserve the session-wide stable MIDI range, retain raw voiced duration across temporarily withheld octave candidates, and use separate 75/60 enter/exit scores to avoid stable-state flicker.
 
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, Dedicated Worker, full pitch pipeline, and main readout paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- RMS, YIN, voiced/noise-gate decisions, Hz/MIDI/note/cents conversion, temporal median smoothing, octave guarding, Worker integration, high-rate Canvas trace, and throttled primary readout are implemented. Stability/sustained-note metrics, practice modes, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
+- RMS, YIN, voiced/noise-gate decisions, Hz/MIDI/note/cents conversion, temporal median smoothing, octave guarding, stability/sustained-note metrics, Worker integration, high-rate Canvas trace, and throttled primary readout are implemented. Practice modes, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
 - A first 4096-sample window takes about 85 ms at 48 kHz or 93 ms at 44.1 kHz before compute. The 40 ms UI publication interval is below the normal 42.7/46.4 ms hop interval, and full-DSP compute averaged about 1.5 ms in automated benchmarks, but input-to-paint latency has not yet been instrumented on the baseline devices and persistent pitch changes can still incur median/guard confirmation lag.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.
+- The one-second window, eight-frame/0.6 evidence gate, 80-cent spread scale, 100 cents/s trend scale, 300 ms onset, and 75/60 stability hysteresis only have deterministic synthetic evidence. They describe engineering feedback, not vocal quality, and require VT-025 real-voice/device/room calibration.
 - PWA manifest generation and the update prompt build are covered, but installability, offline reopen, and update activation remain VT-023/VT-024 acceptance work.
 - The PWA currently uses one SVG icon; platform-specific PNG icon QA remains for the release milestone.
 - Automated browser evidence is Chromium-only on this machine; Safari, Firefox, mobile browsers, and manual visual/accessibility QA remain unverified.

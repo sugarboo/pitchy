@@ -543,7 +543,10 @@ test("loads production audio-thread chunks and transfers synthetic PCM through t
       .toBeGreaterThan(0);
     await expect(page.locator(".note-name")).toHaveText("A4");
     await expect(page.locator(".frequency")).toContainText("440");
-    await expect(page.locator(".detection-state")).toHaveText("已检测到稳定音高");
+    await expect(page.locator(".detection-state")).toHaveText("稳定");
+    await expect(page.locator(".readout-metrics")).toContainText("稳定度");
+    await expect(page.locator(".readout-metrics")).toContainText("/ 100");
+    await expect(page.locator(".readout-metrics")).toContainText("连续发声");
     const pcmCapture = await page.evaluate(
       () =>
         (

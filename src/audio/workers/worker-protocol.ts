@@ -1,6 +1,7 @@
+import { isPracticePitchState, type PracticePitchState } from "../../domain/stability";
 import { isSignalLevel } from "../../dsp/rms";
 
-export const PITCH_WORKER_PROTOCOL_VERSION = 3;
+export const PITCH_WORKER_PROTOCOL_VERSION = 4;
 export const PITCH_WORKER_NAME = "pitchy-pitch-worker";
 
 export interface PitchWorkerConfig {
@@ -39,6 +40,15 @@ export interface PitchFrameProcessedMessage {
   confidence: number;
   voiced: boolean;
   midi: number | null;
+  stabilityScore: number | null;
+  pitchSpreadCents: number | null;
+  trendCentsPerSecond: number | null;
+  validFrameRatio: number;
+  continuousVoicedDurationMs: number;
+  currentStableDurationMs: number;
+  minStableMidi: number | null;
+  maxStableMidi: number | null;
+  state: PracticePitchState;
 }
 
 export type PitchWorkerResponse = PitchWorkerReadyMessage | PitchFrameProcessedMessage;
@@ -68,6 +78,15 @@ const PROCESSED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "confidence",
   "voiced",
   "midi",
+  "stabilityScore",
+  "pitchSpreadCents",
+  "trendCentsPerSecond",
+  "validFrameRatio",
+  "continuousVoicedDurationMs",
+  "currentStableDurationMs",
+  "minStableMidi",
+  "maxStableMidi",
+  "state",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -103,6 +122,14 @@ function isNullablePositiveFinite(value: unknown): value is number | null {
 
 function isNullableFinite(value: unknown): value is number | null {
   return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isUnitInterval(value: unknown): value is number {
+  return isFiniteNonNegative(value) && value <= 1;
+}
+
+function isNullableBoundedScore(value: unknown): value is number | null {
+  return value === null || (isFiniteNonNegative(value) && value <= 100);
 }
 
 function isFiniteSampleFrame(samples: Float32Array): boolean {
@@ -164,23 +191,64 @@ export function isPitchWorkerReadyMessage(value: unknown): value is PitchWorkerR
 }
 
 export function isPitchFrameProcessedMessage(value: unknown): value is PitchFrameProcessedMessage {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    !(
+      hasExactKeys(value, PROCESSED_MESSAGE_KEYS) &&
+      value.type === "frame-processed" &&
+      hasCurrentProtocolVersion(value) &&
+      isSequence(value.sequence) &&
+      isFiniteNonNegative(value.timestampMs) &&
+      isSignalLevel(value) &&
+      isNullablePositiveFinite(value.frequencyHz) &&
+      isFiniteNonNegative(value.confidence) &&
+      value.confidence <= 1 &&
+      typeof value.voiced === "boolean" &&
+      isNullableFinite(value.midi) &&
+      isNullableBoundedScore(value.stabilityScore) &&
+      (value.pitchSpreadCents === null || isFiniteNonNegative(value.pitchSpreadCents)) &&
+      isNullableFinite(value.trendCentsPerSecond) &&
+      isUnitInterval(value.validFrameRatio) &&
+      isFiniteNonNegative(value.continuousVoicedDurationMs) &&
+      isFiniteNonNegative(value.currentStableDurationMs) &&
+      isNullableFinite(value.minStableMidi) &&
+      isNullableFinite(value.maxStableMidi) &&
+      isPracticePitchState(value.state) &&
+      (value.voiced
+        ? value.frequencyHz !== null
+        : value.frequencyHz === null && value.midi === null) &&
+      (value.midi === null || value.voiced) &&
+      ((value.stabilityScore === null &&
+        value.pitchSpreadCents === null &&
+        value.trendCentsPerSecond === null) ||
+        (value.stabilityScore !== null &&
+          value.pitchSpreadCents !== null &&
+          value.trendCentsPerSecond !== null)) &&
+      ((value.minStableMidi === null && value.maxStableMidi === null) ||
+        (value.minStableMidi !== null &&
+          value.maxStableMidi !== null &&
+          value.minStableMidi <= value.maxStableMidi))
+    )
+  ) {
+    return false;
+  }
+
+  const isUnvoicedState = value.state === "silent" || value.state === "low-confidence";
+  const hasClassifiedStability = value.state === "stable" || value.state === "unstable";
   return (
-    isRecord(value) &&
-    hasExactKeys(value, PROCESSED_MESSAGE_KEYS) &&
-    value.type === "frame-processed" &&
-    hasCurrentProtocolVersion(value) &&
-    isSequence(value.sequence) &&
-    isFiniteNonNegative(value.timestampMs) &&
-    isSignalLevel(value) &&
-    isNullablePositiveFinite(value.frequencyHz) &&
-    isFiniteNonNegative(value.confidence) &&
-    value.confidence <= 1 &&
-    typeof value.voiced === "boolean" &&
-    isNullableFinite(value.midi) &&
-    (value.voiced
-      ? value.frequencyHz !== null
-      : value.frequencyHz === null && value.midi === null) &&
-    (value.midi === null || value.voiced)
+    value.voiced !== isUnvoicedState &&
+    (!isUnvoicedState ||
+      (value.continuousVoicedDurationMs === 0 &&
+        value.currentStableDurationMs === 0 &&
+        value.validFrameRatio === 0 &&
+        value.stabilityScore === null)) &&
+    (!hasClassifiedStability || (value.midi !== null && value.stabilityScore !== null)) &&
+    (value.state === "stable"
+      ? value.currentStableDurationMs > 0 && value.minStableMidi !== null
+      : value.currentStableDurationMs === 0) &&
+    value.currentStableDurationMs <= value.continuousVoicedDurationMs
   );
 }
 
