@@ -8,7 +8,9 @@ import {
 } from "../audio/audio-engine";
 import type { AudioEngineStatus } from "../audio/audio-types";
 import { PitchCanvas } from "../components/PitchCanvas";
+import { PitchReadout } from "../components/PitchReadout";
 import { PitchTraceBuffer } from "../components/pitch-trace";
+import { LivePitchStore } from "../features/practice/live-pitch";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
@@ -60,10 +62,16 @@ export function App({
     }),
   );
   const [pitchTrace] = useState(() => pitchTraceOverride ?? new PitchTraceBuffer());
+  const [livePitchStore] = useState(() => new LivePitchStore(pitchTrace));
   const audioSnapshot = useSyncExternalStore(
     audioEngine.subscribe,
     audioEngine.getSnapshot,
     audioEngine.getSnapshot,
+  );
+  const livePitchSnapshot = useSyncExternalStore(
+    livePitchStore.subscribe,
+    livePitchStore.getSnapshot,
+    livePitchStore.getSnapshot,
   );
   const { locale, setLocale, theme, setTheme } = usePreferences();
   const messages = getMessages(locale);
@@ -124,6 +132,22 @@ export function App({
     };
   }, [audioEngine]);
 
+  useEffect(
+    () => audioEngine.subscribeWorkerFrames(livePitchStore.acceptWorkerFrame),
+    [audioEngine, livePitchStore],
+  );
+
+  useEffect(() => {
+    if (
+      audioSnapshot.status === "idle" ||
+      audioSnapshot.status === "requesting-permission" ||
+      audioSnapshot.status === "stopping" ||
+      audioSnapshot.status === "error"
+    ) {
+      livePitchStore.reset();
+    }
+  }, [audioSnapshot.status, livePitchStore]);
+
   async function handlePrimaryAudioAction(): Promise<void> {
     try {
       if (audioSnapshot.status === "running") {
@@ -131,6 +155,7 @@ export function App({
       } else if (audioSnapshot.status === "suspended") {
         await audioEngine.resume();
       } else if (audioSnapshot.status === "idle" || audioSnapshot.status === "error") {
+        livePitchStore.reset();
         await audioEngine.start();
       }
     } catch (error) {
@@ -143,6 +168,8 @@ export function App({
       await audioEngine.stop();
     } catch (error) {
       reportAudioLifecycleFailure(error);
+    } finally {
+      livePitchStore.reset();
     }
   }
 
@@ -242,26 +269,20 @@ export function App({
           </div>
         </div>
 
-        <div className="readout-preview" role="img" aria-label={messages.readoutPreviewLabel}>
+        <section className="readout-preview" aria-label={messages.readoutPreviewLabel}>
           <div className="readout-header">
             <span>{messages.liveReadout}</span>
             <span className="local-pill">{messages.deviceOnly}</span>
           </div>
-          <div className="note-preview" aria-hidden="true">
-            <span className="note-name">A4</span>
-            <span className="frequency">440.0 Hz</span>
-          </div>
-          <div className="cents-track" aria-hidden="true">
-            <span>-50</span>
-            <span className="track-line">
-              <span className="track-center" />
-              <span className="track-marker" />
-            </span>
-            <span>+50</span>
-          </div>
+          <PitchReadout
+            active={isRunning || isSuspended}
+            locale={locale}
+            messages={messages}
+            snapshot={livePitchSnapshot}
+          />
           <PitchCanvas label={messages.pitchTraceLabel} theme={theme} trace={pitchTrace} />
           <p className="preview-caption">{messages.previewCaption}</p>
-        </div>
+        </section>
       </section>
 
       <section className="status-grid" aria-label={messages.foundationStatusLabel}>

@@ -2,6 +2,7 @@ import type { AppErrorCode } from "../audio/audio-types";
 import type { BrowserCapabilityId } from "./browser-capabilities";
 
 export type Locale = "zh-CN" | "en";
+export type PitchReadoutState = "waiting" | "detected" | "silent" | "stabilizing" | "unstable";
 
 export interface ErrorMessage {
   title: string;
@@ -47,6 +48,11 @@ export interface Messages {
   pitchTraceLabel: string;
   liveReadout: string;
   deviceOnly: string;
+  pitchStates: Record<PitchReadoutState, string>;
+  centsFromNearestLabel: string;
+  confidenceLabel: string;
+  inputLevelLabel: string;
+  notAvailable: string;
   previewCaption: string;
   foundationStatusLabel: string;
   runtimeEyebrow: string;
@@ -102,18 +108,29 @@ const zhCn: Messages = {
   audioRunning: "本地音频环境已启动",
   audioRunningDetail: (sampleRate) =>
     sampleRate === null
-      ? "实际采样率等待浏览器确认；音高分析尚未接入。"
-      : `实际采样率 ${sampleRate.toLocaleString("zh-CN")} Hz；音高分析尚未接入。`,
+      ? "实际采样率等待浏览器确认；分析完全在本机进行。"
+      : `实际采样率 ${sampleRate.toLocaleString("zh-CN")} Hz；分析完全在本机进行。`,
   audioSuspended: "音频已暂停",
   audioSuspendedDetail: "麦克风轨道仍由本次练习持有；请点击恢复或停止并完全释放。",
   retryMicrophone: "重新开始",
   retryMicrophoneDetail: "解决提示的问题后再次申请权限",
   microphonePermissionNote: "麦克风权限只会由你的明确点击触发",
-  readoutPreviewLabel: "实时读数界面预览",
+  readoutPreviewLabel: "实时音高读数",
   pitchTraceLabel: "最近十秒音高轨迹",
   liveReadout: "实时读数",
   deviceOnly: "仅本机",
-  previewCaption: "界面预览 · 音高分析尚未启用",
+  pitchStates: {
+    waiting: "等待开始",
+    detected: "已检测到稳定音高",
+    silent: "等待发声",
+    stabilizing: "正在确认音高变化",
+    unstable: "无法稳定检测",
+  },
+  centsFromNearestLabel: "音中心偏差",
+  confidenceLabel: "检测置信度",
+  inputLevelLabel: "输入电平",
+  notAvailable: "—",
+  previewCaption: "YIN 音高分析、倍频保护与轨迹绘制均在本机完成",
   foundationStatusLabel: "第一阶段状态",
   runtimeEyebrow: "运行环境",
   capabilityHeading: "浏览器能力检测",
@@ -136,7 +153,7 @@ const zhCn: Messages = {
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "音频线程与音高引擎已完成；实时轨迹、主读数和练习指标正在按依赖顺序接入。",
+  scopeNote: "音频线程、音高引擎、实时轨迹与主读数已接通；稳定度和练习模式正在按依赖顺序推进。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -237,19 +254,30 @@ const en: Messages = {
   audioRunning: "Local audio is running",
   audioRunningDetail: (sampleRate) =>
     sampleRate === null
-      ? "The actual sample rate is awaiting browser confirmation; pitch analysis is not connected yet."
-      : `Actual sample rate: ${sampleRate.toLocaleString("en")} Hz; pitch analysis is not connected yet.`,
+      ? "The actual sample rate is awaiting browser confirmation; analysis stays on-device."
+      : `Actual sample rate: ${sampleRate.toLocaleString("en")} Hz; analysis stays on-device.`,
   audioSuspended: "Audio is paused",
   audioSuspendedDetail:
     "This session still owns the microphone tracks; resume with a click or stop to release them fully.",
   retryMicrophone: "Start again",
   retryMicrophoneDetail: "Resolve the issue shown below, then request access again",
   microphonePermissionNote: "Microphone access will only follow an explicit click",
-  readoutPreviewLabel: "Live readout interface preview",
+  readoutPreviewLabel: "Live pitch readout",
   pitchTraceLabel: "Pitch trace for the last ten seconds",
   liveReadout: "Live readout",
   deviceOnly: "On-device",
-  previewCaption: "Interface preview · Pitch analysis is not enabled",
+  pitchStates: {
+    waiting: "Waiting to start",
+    detected: "Stable pitch detected",
+    silent: "Waiting for voice",
+    stabilizing: "Confirming pitch change",
+    unstable: "Unable to detect steadily",
+  },
+  centsFromNearestLabel: "Note-center deviation",
+  confidenceLabel: "Detection confidence",
+  inputLevelLabel: "Input level",
+  notAvailable: "—",
+  previewCaption: "YIN analysis, octave guarding, and trace rendering all stay on-device",
   foundationStatusLabel: "Foundation stage status",
   runtimeEyebrow: "Runtime",
   capabilityHeading: "Browser capabilities",
@@ -273,7 +301,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "Audio threads and the pitch engine are complete. The live trace, primary readings, and practice metrics are being connected in dependency order.",
+    "Audio threads, the pitch engine, live trace, and primary readings are connected. Stability and practice modes are next.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

@@ -18,6 +18,7 @@ import {
   isConfigurePitchWorkerMessage,
   PITCH_WORKER_PROTOCOL_VERSION,
 } from "../../src/audio/workers/worker-protocol";
+import { PitchTraceBuffer } from "../../src/components/pitch-trace";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -57,6 +58,13 @@ class FakeMessagePort {
       this.#listeners.delete(listener);
     }
   }
+
+  emit(data: unknown): void {
+    const event = { data } as MessageEvent<unknown>;
+    for (const listener of this.#listeners) {
+      listener(event);
+    }
+  }
 }
 
 class FakeAudioWorkletNode extends FakeAudioNode implements ManagedAudioWorkletNode {
@@ -92,6 +100,7 @@ class FakeWorker implements ManagedWorker {
         protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
         sampleRate: message.sampleRate,
         frameSize: message.frameSize,
+        hopSize: message.hopSize,
       },
     } as MessageEvent<unknown>;
     for (const listener of this.#messageListeners) {
@@ -129,6 +138,13 @@ class FakeWorker implements ManagedWorker {
     return (
       this.#messageListeners.size + this.#errorListeners.size + this.#messageErrorListeners.size
     );
+  }
+
+  emit(data: unknown): void {
+    const event = { data } as MessageEvent<unknown>;
+    for (const listener of this.#messageListeners) {
+      listener(event);
+    }
   }
 }
 
@@ -343,6 +359,100 @@ describe("App", () => {
     expect(document.querySelector<HTMLButtonElement>(".primary-button")?.textContent).toContain(
       "Start practicing",
     );
+  });
+
+  it("renders a validated Worker pitch frame and feeds the Canvas trace without rebuilding audio", async () => {
+    const context = new FakeAudioContext("suspended", 48_000);
+    const workletNode = new FakeAudioWorkletNode();
+    const worker = new FakeWorker();
+    const pitchTrace = new PitchTraceBuffer();
+    const createAudioContext = vi.fn(() => context);
+    const createWorker = vi.fn(() => worker);
+    await renderApp({
+      supportOverride: createSupportedSnapshot(),
+      requestMicrophone: vi.fn(async () => createStream(new FakeTrack())),
+      createAudioContext,
+      createAudioWorkletNode: vi.fn(() => workletNode),
+      createWorker,
+      pitchTrace,
+    });
+    await act(async () => document.querySelector<HTMLButtonElement>(".primary-button")?.click());
+
+    await act(async () => {
+      workletNode.port.emit({
+        type: "pcm-frame",
+        sequence: 0,
+        samples: new Float32Array(4096),
+      });
+      worker.emit({
+        type: "frame-processed",
+        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+        sequence: 0,
+        timestampMs: (4096 / 48_000) * 1000,
+        rms: 0.5,
+        rmsDbfs: -6.020_599_913_279_624,
+        frequencyHz: 440,
+        confidence: 0.99,
+        voiced: true,
+        midi: 69,
+      });
+    });
+
+    expect(document.querySelector(".note-name")?.textContent).toBe("A4");
+    expect(document.querySelector(".frequency")?.textContent).toBe("440.0 Hz");
+    expect(document.querySelector(".cents-value strong")?.textContent).toBe("0.0 音分");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("99%");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("-6.0 dBFS");
+    expect(pitchTrace.size).toBe(1);
+    expect(pitchTrace.at(0).midi).toBe(69);
+
+    await act(async () => document.querySelector<HTMLButtonElement>(".language-toggle")?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
+
+    expect(document.querySelector(".cents-value")?.textContent).toContain("Note-center deviation");
+    expect(document.querySelector(".detection-state")?.textContent).toBe("Stable pitch detected");
+    expect(createAudioContext).toHaveBeenCalledOnce();
+    expect(createWorker).toHaveBeenCalledOnce();
+    expect(pitchTrace.size).toBe(1);
+  });
+
+  it("keeps input level and confidence visible without inventing a note for unvoiced input", async () => {
+    const context = new FakeAudioContext("suspended", 48_000);
+    const workletNode = new FakeAudioWorkletNode();
+    const worker = new FakeWorker();
+    await renderApp({
+      supportOverride: createSupportedSnapshot(),
+      requestMicrophone: vi.fn(async () => createStream(new FakeTrack())),
+      createAudioContext: vi.fn(() => context),
+      createAudioWorkletNode: vi.fn(() => workletNode),
+      createWorker: vi.fn(() => worker),
+    });
+    await act(async () => document.querySelector<HTMLButtonElement>(".primary-button")?.click());
+
+    await act(async () => {
+      workletNode.port.emit({
+        type: "pcm-frame",
+        sequence: 0,
+        samples: new Float32Array(4096),
+      });
+      worker.emit({
+        type: "frame-processed",
+        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+        sequence: 0,
+        timestampMs: (4096 / 48_000) * 1000,
+        rms: 0.1,
+        rmsDbfs: -20,
+        frequencyHz: null,
+        confidence: 0.2,
+        voiced: false,
+        midi: null,
+      });
+    });
+
+    expect(document.querySelector(".note-name")?.textContent).toBe("—");
+    expect(document.querySelector(".detection-state")?.textContent).toBe("无法稳定检测");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("20%");
+    expect(document.querySelector(".readout-metrics")?.textContent).toContain("-20.0 dBFS");
   });
 
   it("keeps the retained audio engine usable when StrictMode replays its mount effect", async () => {

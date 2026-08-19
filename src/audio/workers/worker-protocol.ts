@@ -1,11 +1,12 @@
 import { isSignalLevel } from "../../dsp/rms";
 
-export const PITCH_WORKER_PROTOCOL_VERSION = 2;
+export const PITCH_WORKER_PROTOCOL_VERSION = 3;
 export const PITCH_WORKER_NAME = "pitchy-pitch-worker";
 
 export interface PitchWorkerConfig {
   sampleRate: number;
   frameSize: number;
+  hopSize: number;
 }
 
 export interface ConfigurePitchWorkerMessage extends PitchWorkerConfig {
@@ -31,8 +32,13 @@ export interface PitchFrameProcessedMessage {
   type: "frame-processed";
   protocolVersion: typeof PITCH_WORKER_PROTOCOL_VERSION;
   sequence: number;
+  timestampMs: number;
   rms: number;
   rmsDbfs: number;
+  frequencyHz: number | null;
+  confidence: number;
+  voiced: boolean;
+  midi: number | null;
 }
 
 export type PitchWorkerResponse = PitchWorkerReadyMessage | PitchFrameProcessedMessage;
@@ -42,6 +48,7 @@ const CONFIGURE_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "protocolVersion",
   "sampleRate",
   "frameSize",
+  "hopSize",
 ]);
 const PROCESS_FRAME_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "type",
@@ -54,8 +61,13 @@ const PROCESSED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "type",
   "protocolVersion",
   "sequence",
+  "timestampMs",
   "rms",
   "rmsDbfs",
+  "frequencyHz",
+  "confidence",
+  "voiced",
+  "midi",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,6 +93,18 @@ function isSampleRate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isNullablePositiveFinite(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value > 0);
+}
+
+function isNullableFinite(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
 function isFiniteSampleFrame(samples: Float32Array): boolean {
   for (const sample of samples) {
     if (!Number.isFinite(sample)) {
@@ -104,7 +128,9 @@ export function isConfigurePitchWorkerMessage(
     value.type === "configure" &&
     hasCurrentProtocolVersion(value) &&
     isSampleRate(value.sampleRate) &&
-    isPositiveInteger(value.frameSize)
+    isPositiveInteger(value.frameSize) &&
+    isPositiveInteger(value.hopSize) &&
+    value.hopSize <= value.frameSize
   );
 }
 
@@ -131,7 +157,9 @@ export function isPitchWorkerReadyMessage(value: unknown): value is PitchWorkerR
     value.type === "worker-ready" &&
     hasCurrentProtocolVersion(value) &&
     isSampleRate(value.sampleRate) &&
-    isPositiveInteger(value.frameSize)
+    isPositiveInteger(value.frameSize) &&
+    isPositiveInteger(value.hopSize) &&
+    value.hopSize <= value.frameSize
   );
 }
 
@@ -142,7 +170,17 @@ export function isPitchFrameProcessedMessage(value: unknown): value is PitchFram
     value.type === "frame-processed" &&
     hasCurrentProtocolVersion(value) &&
     isSequence(value.sequence) &&
-    isSignalLevel(value)
+    isFiniteNonNegative(value.timestampMs) &&
+    isSignalLevel(value) &&
+    isNullablePositiveFinite(value.frequencyHz) &&
+    isFiniteNonNegative(value.confidence) &&
+    value.confidence <= 1 &&
+    typeof value.voiced === "boolean" &&
+    isNullableFinite(value.midi) &&
+    (value.voiced
+      ? value.frequencyHz !== null
+      : value.frequencyHz === null && value.midi === null) &&
+    (value.midi === null || value.voiced)
   );
 }
 

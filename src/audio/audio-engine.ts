@@ -620,6 +620,7 @@ export class AudioEngine {
           protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
           sampleRate: resources.context.sampleRate,
           frameSize: DEFAULT_PCM_CAPTURE_CONFIG.frameSize,
+          hopSize: DEFAULT_PCM_CAPTURE_CONFIG.hopSize,
         },
         [],
       );
@@ -642,7 +643,8 @@ export class AudioEngine {
     if (data.type === "worker-ready") {
       if (
         data.sampleRate !== resources.context.sampleRate ||
-        data.frameSize !== DEFAULT_PCM_CAPTURE_CONFIG.frameSize
+        data.frameSize !== DEFAULT_PCM_CAPTURE_CONFIG.frameSize ||
+        data.hopSize !== DEFAULT_PCM_CAPTURE_CONFIG.hopSize
       ) {
         this.#handleWorkerFailure(resources, new Error("Pitch worker configuration mismatch"));
         return;

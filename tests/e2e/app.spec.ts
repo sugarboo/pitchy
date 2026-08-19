@@ -372,6 +372,8 @@ test("loads production audio-thread chunks and transfers synthetic PCM through t
       readyCount: 0,
       processedCount: 0,
       nonSilentCount: 0,
+      voicedCount: 0,
+      firstVoicedMidi: null as number | null,
       firstNonSilentRms: null as number | null,
       firstNonSilentRmsDbfs: null as number | null,
       firstSequence: null as number | null,
@@ -396,6 +398,16 @@ test("loads production audio-thread chunks and transfers synthetic PCM through t
             pitchWorker.readyCount += 1;
           } else if (message.type === "frame-processed") {
             pitchWorker.processedCount += 1;
+            if (
+              "voiced" in message &&
+              message.voiced === true &&
+              "midi" in message &&
+              typeof message.midi === "number" &&
+              Number.isFinite(message.midi)
+            ) {
+              pitchWorker.voicedCount += 1;
+              pitchWorker.firstVoicedMidi ??= message.midi;
+            }
             if (
               "rms" in message &&
               typeof message.rms === "number" &&
@@ -529,6 +541,9 @@ test("loads production audio-thread chunks and transfers synthetic PCM through t
         ),
       )
       .toBeGreaterThan(0);
+    await expect(page.locator(".note-name")).toHaveText("A4");
+    await expect(page.locator(".frequency")).toContainText("440");
+    await expect(page.locator(".detection-state")).toHaveText("已检测到稳定音高");
     const pcmCapture = await page.evaluate(
       () =>
         (
@@ -603,6 +618,8 @@ test("loads production audio-thread chunks and transfers synthetic PCM through t
       firstBufferByteLengthAfter: 0,
     });
     expect(processedWorkerFrame.processFrameCount).toBeGreaterThan(0);
+    expect(processedWorkerFrame.voicedCount).toBeGreaterThan(0);
+    expect(processedWorkerFrame.firstVoicedMidi).toBeCloseTo(69, 1);
     const firstNonSilentRms = processedWorkerFrame.firstNonSilentRms;
     const firstNonSilentRmsDbfs = processedWorkerFrame.firstNonSilentRmsDbfs;
     expect(typeof firstNonSilentRms).toBe("number");

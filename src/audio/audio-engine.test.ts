@@ -16,11 +16,36 @@ import {
   isConfigurePitchWorkerMessage,
   isProcessPitchFrameMessage,
   PITCH_WORKER_PROTOCOL_VERSION,
+  type PitchFrameProcessedMessage,
 } from "./workers/worker-protocol";
 import {
   DEFAULT_PCM_CAPTURE_CONFIG,
   PCM_CAPTURE_PROCESSOR_NAME,
 } from "./worklets/pcm-capture-protocol";
+
+function createProcessedFrame(
+  sequence: number,
+  overrides: Partial<
+    Omit<PitchFrameProcessedMessage, "type" | "protocolVersion" | "sequence">
+  > = {},
+): PitchFrameProcessedMessage {
+  return {
+    type: "frame-processed",
+    protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+    sequence,
+    timestampMs:
+      ((DEFAULT_PCM_CAPTURE_CONFIG.frameSize + sequence * DEFAULT_PCM_CAPTURE_CONFIG.hopSize) /
+        48_000) *
+      1000,
+    rms: 0,
+    rmsDbfs: SILENCE_DBFS,
+    frequencyHz: null,
+    confidence: 0,
+    voiced: false,
+    midi: null,
+    ...overrides,
+  };
+}
 
 class FakeTrack {
   readonly #listeners = new Set<EventListener>();
@@ -180,6 +205,7 @@ class FakeWorker implements ManagedWorker {
           protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
           sampleRate: received.sampleRate,
           frameSize: received.frameSize,
+          hopSize: received.hopSize,
         });
       }
       return;
@@ -190,13 +216,7 @@ class FakeWorker implements ManagedWorker {
       this.#frameSize !== null &&
       isProcessPitchFrameMessage(received, this.#frameSize)
     ) {
-      this.emit({
-        type: "frame-processed",
-        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-        sequence: received.sequence,
-        rms: 0,
-        rmsDbfs: SILENCE_DBFS,
-      });
+      this.emit(createProcessedFrame(received.sequence));
     }
   });
 
@@ -383,6 +403,7 @@ describe("AudioEngine lifecycle", () => {
       protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
       sampleRate: 44_100,
       frameSize: DEFAULT_PCM_CAPTURE_CONFIG.frameSize,
+      hopSize: DEFAULT_PCM_CAPTURE_CONFIG.hopSize,
     });
     expect(context.addModule).toHaveBeenCalledExactlyOnceWith("/assets/pcm-capture.test.js");
     expect(createAudioWorkletNode).toHaveBeenCalledExactlyOnceWith(
@@ -679,27 +700,36 @@ describe("AudioEngine lifecycle", () => {
       samples: expect.any(Float32Array),
     });
 
-    worker.emit({
-      type: "frame-processed",
-      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-      sequence: 8,
-      rms: 0.25,
-      rmsDbfs: -12.041199826559248,
-    });
-    worker.emit({
-      type: "frame-processed",
-      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-      sequence: 7,
-      rms: 0.5,
-      rmsDbfs: -6.020599913279624,
-    });
-    worker.emit({
-      type: "frame-processed",
-      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-      sequence: 7,
-      rms: 0.75,
-      rmsDbfs: -2.4987747321659985,
-    });
+    worker.emit(
+      createProcessedFrame(8, {
+        rms: 0.25,
+        rmsDbfs: -12.041199826559248,
+        frequencyHz: 440,
+        confidence: 0.99,
+        voiced: true,
+        midi: 69,
+      }),
+    );
+    worker.emit(
+      createProcessedFrame(7, {
+        rms: 0.5,
+        rmsDbfs: -6.020599913279624,
+        frequencyHz: 440,
+        confidence: 0.99,
+        voiced: true,
+        midi: 69,
+      }),
+    );
+    worker.emit(
+      createProcessedFrame(7, {
+        rms: 0.75,
+        rmsDbfs: -2.4987747321659985,
+        frequencyHz: 440,
+        confidence: 0.99,
+        voiced: true,
+        midi: 69,
+      }),
+    );
     expect(processedFrames).toEqual([
       {
         sequence: 7,
@@ -711,13 +741,7 @@ describe("AudioEngine lifecycle", () => {
     const laterSamples = new Float32Array(DEFAULT_PCM_CAPTURE_CONFIG.frameSize);
     unsubscribe();
     workletNode.port.emit({ type: "pcm-frame", sequence: 10, samples: laterSamples });
-    worker.emit({
-      type: "frame-processed",
-      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-      sequence: 10,
-      rms: 0,
-      rmsDbfs: SILENCE_DBFS,
-    });
+    worker.emit(createProcessedFrame(10));
     expect(processedFrames).toHaveLength(1);
   });
 
@@ -779,13 +803,7 @@ describe("AudioEngine lifecycle", () => {
     await engine.start();
 
     firstWorker.emitQueuedFromReleasedWorker({ type: "unexpected-worker-response" });
-    firstWorker.emitQueuedFromReleasedWorker({
-      type: "frame-processed",
-      protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-      sequence: 0,
-      rms: 0,
-      rmsDbfs: SILENCE_DBFS,
-    });
+    firstWorker.emitQueuedFromReleasedWorker(createProcessedFrame(0));
     await Promise.resolve();
 
     expect(engine.getSnapshot().status).toBe("running");

@@ -1,6 +1,7 @@
 import { bench, describe } from "vitest";
 import { DEFAULT_YIN_CONFIG } from "./dsp-config";
 import { estimatePitchYin } from "./pitch-estimator";
+import { advancePitchPipeline, createPitchPipelineState } from "./pitch-pipeline";
 import {
   calculateYinCumulativeMeanNormalizedDifference,
   calculateYinDifference,
@@ -14,6 +15,7 @@ const maxTau = Math.floor(sampleRate / 65);
 const frame = new Float32Array(4096);
 const belowGateFrame = new Float32Array(4096);
 const noiseFrame = new Float32Array(4096);
+let warmedPipelineState = createPitchPipelineState();
 let noiseState = 0x6d_2b_79_f5;
 for (let index = 0; index < frame.length; index += 1) {
   frame[index] =
@@ -23,6 +25,9 @@ for (let index = 0; index < frame.length; index += 1) {
   belowGateFrame[index] = 0.0001 * Math.sin((2 * Math.PI * 220 * index) / sampleRate);
   noiseState = (Math.imul(noiseState, 1_664_525) + 1_013_904_223) >>> 0;
   noiseFrame[index] = (noiseState / 0x1_00_00_00_00) * 2 - 1;
+}
+for (let index = 0; index < 5; index += 1) {
+  warmedPipelineState = advancePitchPipeline(warmedPipelineState, frame, sampleRate).state;
 }
 
 describe("YIN stages", () => {
@@ -47,5 +52,9 @@ describe("YIN stages", () => {
 
   bench("4096-sample below-gate early exit", () => {
     estimatePitchYin(belowGateFrame, sampleRate, DEFAULT_YIN_CONFIG);
+  });
+
+  bench("4096-sample full stateful pitch pipeline", () => {
+    advancePitchPipeline(warmedPipelineState, frame, sampleRate);
   });
 });
