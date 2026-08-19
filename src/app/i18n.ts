@@ -44,6 +44,7 @@ export interface Messages {
   retryMicrophoneDetail: string;
   microphonePermissionNote: string;
   readoutPreviewLabel: string;
+  pitchTraceLabel: string;
   liveReadout: string;
   deviceOnly: string;
   previewCaption: string;
@@ -57,7 +58,7 @@ export interface Messages {
   missingCapabilities: (labels: string) => string;
   progressEyebrow: string;
   sliceHeading: string;
-  stages: Record<"foundation" | "audio" | "pitch", string>;
+  stages: Record<"foundation" | "audio" | "pitch" | "practice", string>;
   stageStates: Record<"complete" | "active" | "pending", string>;
   scopeNote: string;
   medicalDisclaimer: string;
@@ -109,6 +110,7 @@ const zhCn: Messages = {
   retryMicrophoneDetail: "解决提示的问题后再次申请权限",
   microphonePermissionNote: "麦克风权限只会由你的明确点击触发",
   readoutPreviewLabel: "实时读数界面预览",
+  pitchTraceLabel: "最近十秒音高轨迹",
   liveReadout: "实时读数",
   deviceOnly: "仅本机",
   previewCaption: "界面预览 · 音高分析尚未启用",
@@ -127,14 +129,14 @@ const zhCn: Messages = {
     foundation: "工程骨架",
     audio: "音频线程",
     pitch: "YIN 音高引擎",
+    practice: "实时练声界面",
   },
   stageStates: {
     complete: "已完成",
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote:
-    "麦克风权限与 AudioContext 生命周期已接入；Worklet、音高读数和练习报告仍会按依赖顺序逐步接入。",
+  scopeNote: "音频线程与音高引擎已完成；实时轨迹、主读数和练习指标正在按依赖顺序接入。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -244,6 +246,7 @@ const en: Messages = {
   retryMicrophoneDetail: "Resolve the issue shown below, then request access again",
   microphonePermissionNote: "Microphone access will only follow an explicit click",
   readoutPreviewLabel: "Live readout interface preview",
+  pitchTraceLabel: "Pitch trace for the last ten seconds",
   liveReadout: "Live readout",
   deviceOnly: "On-device",
   previewCaption: "Interface preview · Pitch analysis is not enabled",
@@ -262,6 +265,7 @@ const en: Messages = {
     foundation: "Foundation",
     audio: "Audio threads",
     pitch: "YIN pitch engine",
+    practice: "Live practice interface",
   },
   stageStates: {
     complete: "Complete",
@@ -269,7 +273,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "Microphone permission and the AudioContext lifecycle are connected. The Worklet, pitch readings, and summaries will follow dependency order.",
+    "Audio threads and the pitch engine are complete. The live trace, primary readings, and practice metrics are being connected in dependency order.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

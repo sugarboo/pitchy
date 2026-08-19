@@ -7,14 +7,17 @@ import {
   type WorkerFactory,
 } from "../audio/audio-engine";
 import type { AudioEngineStatus } from "../audio/audio-types";
+import { PitchCanvas } from "../components/PitchCanvas";
+import { PitchTraceBuffer } from "../components/pitch-trace";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
 
 const DELIVERY_STAGES = [
   { id: "M0", label: "foundation", state: "complete" },
-  { id: "M1", label: "audio", state: "active" },
-  { id: "M2", label: "pitch", state: "pending" },
+  { id: "M1", label: "audio", state: "complete" },
+  { id: "M2", label: "pitch", state: "complete" },
+  { id: "M3", label: "practice", state: "active" },
 ] as const;
 
 export interface AppProps {
@@ -26,6 +29,7 @@ export interface AppProps {
   workletModuleUrl?: string;
   workerModuleUrl?: string;
   workerReadyTimeoutMs?: number;
+  pitchTrace?: PitchTraceBuffer;
 }
 
 function reportAudioLifecycleFailure(error: unknown): void {
@@ -41,6 +45,7 @@ export function App({
   workletModuleUrl,
   workerModuleUrl,
   workerReadyTimeoutMs,
+  pitchTrace: pitchTraceOverride,
 }: AppProps = {}) {
   const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
   const [audioEngine] = useState(() =>
@@ -54,6 +59,7 @@ export function App({
       ...(workerReadyTimeoutMs === undefined ? {} : { workerReadyTimeoutMs }),
     }),
   );
+  const [pitchTrace] = useState(() => pitchTraceOverride ?? new PitchTraceBuffer());
   const audioSnapshot = useSyncExternalStore(
     audioEngine.subscribe,
     audioEngine.getSnapshot,
@@ -171,7 +177,7 @@ export function App({
               <span lang={nextLocale}>{nextLocale === "en" ? "EN" : "中文"}</span>
             </button>
           </fieldset>
-          <span className="phase-badge">v0.1 · M1</span>
+          <span className="phase-badge">v0.1 · M3</span>
         </div>
       </header>
 
@@ -253,6 +259,7 @@ export function App({
             </span>
             <span>+50</span>
           </div>
+          <PitchCanvas label={messages.pitchTraceLabel} theme={theme} trace={pitchTrace} />
           <p className="preview-caption">{messages.previewCaption}</p>
         </div>
       </section>

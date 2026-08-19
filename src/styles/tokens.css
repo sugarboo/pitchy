@@ -14,6 +14,10 @@
   --color-primary-strong: #24bd9b;
   --color-accent: #8fa9ff;
   --color-warning: #ffcb6b;
+  --color-trace-grid: rgba(158, 175, 198, 0.2);
+  --color-trace-line: #62e5c2;
+  --color-trace-glow: rgba(98, 229, 194, 0.3);
+  --color-trace-surface: rgba(8, 17, 31, 0.38);
   --shadow-card: 0 24px 70px rgba(0, 0, 0, 0.28);
   --radius-lg: 28px;
   --radius-md: 18px;
@@ -32,5 +36,9 @@
   --color-primary-strong: #0a6a5b;
   --color-accent: #486bd8;
   --color-warning: #8a5b00;
+  --color-trace-grid: rgba(48, 70, 100, 0.18);
+  --color-trace-line: #087c68;
+  --color-trace-glow: rgba(8, 124, 104, 0.22);
+  --color-trace-surface: rgba(243, 247, 251, 0.68);
   --shadow-card: 0 24px 70px rgba(39, 67, 96, 0.12);
 }

@@ -236,12 +236,15 @@ describe("App", () => {
     const initialTheme = document.documentElement.dataset.theme;
     const themeButton = document.querySelector<HTMLButtonElement>(".theme-toggle");
     const languageButton = document.querySelector<HTMLButtonElement>(".language-toggle");
+    const pitchCanvas = document.querySelector<HTMLCanvasElement>(".pitch-canvas");
     expect(themeButton).not.toBeNull();
     expect(languageButton).not.toBeNull();
+    expect(pitchCanvas?.getAttribute("aria-label")).toBe("最近十秒音高轨迹");
 
     await act(async () => languageButton?.click());
 
     expect(document.querySelector("h1")?.textContent).toBe("Hear every change in your voice");
+    expect(pitchCanvas?.getAttribute("aria-label")).toBe("Pitch trace for the last ten seconds");
     expect(document.documentElement.lang).toBe("en");
     expect(window.localStorage.getItem("pitchy.ui.locale")).toBe("en");
 
@@ -251,6 +254,7 @@ describe("App", () => {
     expect(document.documentElement.dataset.theme).toBe(expectedTheme);
     expect(document.documentElement.style.colorScheme).toBe(expectedTheme);
     expect(window.localStorage.getItem("pitchy.ui.theme")).toBe(expectedTheme);
+    expect(pitchCanvas?.dataset.renderTheme).toBe(expectedTheme);
   });
 
   it("runs, pauses, resumes, and stops one engine without rebuilding it for UI preferences", async () => {

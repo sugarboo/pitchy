@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-08-13`
+- Last updated: `2026-08-19`
 - Current milestone: `M3`
-- Current backlog item: `VT-015`
+- Current backlog item: `VT-016`
 - Current state: `pending`
 - Recommended route: `practice-ui`
 
 ## Current handoff
 
-VT-014 and milestone M2 are complete. `src/dsp/octave-guard.ts` is an immutable continuous-MIDI state machine placed before temporal median smoothing. It accepts changes up to and including seven semitones, holds larger candidates at the prior accepted value, and accepts the raw unquantized pitch after three same-direction candidates whose adjacent drift stays within two semitones. Its `observationAccepted` and `resetSmoothing` outputs explicitly freeze the median during pending evidence and restart it on a confirmed jump or unvoiced boundary. Null/non-finite observations reset the guard, so a new onset at any pitch passes immediately. Deterministic tests cover double/half-frequency glitches, persistent real jumps, exact threshold and candidate-step boundaries, direction/cluster changes, gradual two-octave glissando, silence, extreme values, state immutability, guard-to-median composition, a synthetic injected-error rate below 1%, and 128 continuous YIN frames for A2–A5 at 44.1/48 kHz. VT-015 is next: add a DPR-aware fixed-capacity Canvas pitch trace without sending every pitch frame through React state; Worker DSP integration and live readout remain later practice-UI work.
+VT-015 is complete. `src/dsp/ring-buffer.ts` provides a reusable preallocated fixed-capacity buffer, while `src/components/pitch-trace.ts` owns a 512-point imperative trace stream that preserves voiced/unvoiced gaps and never publishes per-frame React state. `PitchCanvas.tsx` coalesces writes into one animation-frame draw, renders the latest ten-second window, breaks paths across unvoiced samples, resolves theme colors from semantic CSS tokens, sizes backing pixels from `devicePixelRatio`, redraws on resize/theme changes, and cancels work while the page is hidden or after unmount. The welcome readout now includes the accessible localized trace surface and reflects the active M3 milestone. Browser tests exercise DPR sizing, high-rate coalescing without React rerenders, gap rendering, visibility pause/resume, cleanup, theme redraw, and Chinese/English accessible labels. VT-016 is next: integrate the existing YIN/gate/octave-guard/median pipeline into Worker results, append accepted high-frequency MIDI observations directly to `PitchTraceBuffer`, and expose a separately throttled live primary readout; any protocol revision must update both ends and protocol tests.
 
 First command: `pnpm skills:route`
 
@@ -41,8 +41,8 @@ First command: `pnpm skills:route`
 | VT-012 | complete | Pure adaptive gate state, conjunctive voiced evidence, end-to-end single-frame YIN estimates, recovery sequences, deterministic signals, and Node/Chromium benchmarks pass. |
 | VT-013 | complete | Immutable five-value continuous-MIDI median state, unvoiced/non-finite reset, deterministic motion/outlier tests, and Node/Chromium benchmarks pass. |
 | VT-014 | complete | Strict seven-semitone guard, clustered three-frame confirmation, unvoiced reset, median-control contract, octave-rate tests, and Node/Chromium benchmarks pass. |
-| VT-015 | pending | Add Canvas pitch trace. |
-| VT-016 | pending | Add live primary readout. |
+| VT-015 | complete | Fixed-capacity imperative trace storage, ten-second Canvas rendering, DPR/theme/visibility handling, and browser regressions pass without per-frame React state. |
+| VT-016 | pending | Integrate the Worker pitch pipeline and add a throttled live primary readout while feeding Canvas directly. |
 | VT-017 | pending | Add stability and sustained-note state machine. |
 | VT-018 | pending | Complete free-practice mode. |
 | VT-019 | pending | Complete target-note mode. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 64 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
+| `pnpm check` | pass | Biome checked 71 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 16 unit files, 434 tests, including YIN stages, A2–A5 continuous octave-rate coverage, voiced evidence, adaptive-gate recovery, median smoothing, octave guarding/composition, domain conversions, protocols, transfers, and cleanup. |
-| `pnpm test:browser` | pass | 1 browser file, 10 Chromium tests, including start and final audio cleanup after Strict Mode effect replay. |
-| `pnpm build` | pass | Vite emitted separate 1.66 kB Worker and 1.53 kB Worklet JavaScript assets; 10 entries / 243.42 KiB are precached. |
+| `pnpm test` | pass | 18 unit files, 458 tests, including fixed-capacity wrap/reset/validation, immutable pitch-trace history, YIN stages, smoothing/guarding, domain conversions, protocols, transfers, and cleanup. |
+| `pnpm test:browser` | pass | 2 browser files, 13 Chromium tests, including DPR-sized Canvas pixels, coalesced imperative drawing without React rerenders, unvoiced path gaps, visibility pause/resume, cleanup, localized labels, and Strict Mode audio cleanup. |
+| `pnpm build` | pass | Vite emitted separate 1.66 kB Worker and 1.53 kB Worklet JavaScript assets; 10 entries / 248.41 KiB are precached. |
 | `pnpm test:e2e` | pass | The sandbox first denied the preview listener with `EACCES`; rerunning with local-listen permission passed all 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and RMS tests. |
-| `pnpm check:size` | pass | Compressed app shell is 82.7 KiB of the 500 KiB budget. |
-| `pnpm benchmark:dsp --run` | pass | Under Node 24, 4096 octave-guard transitions averaged 0.164 ms in Node and 0.058 ms in Chromium for injected octave bursts, and 0.136/0.051 ms for mixed jumps/resets. The voiced YIN estimator averaged 1.59/1.68 ms per 4096-sample frame; no environment-sensitive CI threshold is asserted. |
+| `pnpm check:size` | pass | Compressed app shell is 84.4 KiB of the 500 KiB budget. |
+| `pnpm benchmark:dsp --run` | pass | Under Node 24, 4096 pitch-trace writes plus a 512-point chronological traversal averaged 0.011 ms in Node and 0.012 ms in Chromium. The voiced YIN estimator averaged 1.50/1.64 ms per 4096-sample frame; no environment-sensitive CI threshold is asserted. |
 
 ## Durable decisions
 
@@ -98,11 +98,13 @@ First command: `pnpm skills:route`
 - Keep adaptive noise-floor state explicit and resettable outside the single-frame estimator. Classify with the previous threshold, learn aperiodic frames using asymmetric time-based EWMA, ignore open periodic frames, and release an elevated floor when silence or a periodic candidate below the gate proves recovery is needed.
 - Smooth pitch in continuous MIDI space with an immutable five-observation median reducer. Compute a result from every non-empty warm-up window, average the two central values for an even warm-up count, and reset on unvoiced or non-finite input so old phrases cannot bias a new onset. Keep octave-jump confirmation in VT-014 rather than hiding it inside the statistical filter.
 - Guard large voiced jumps before temporal median smoothing. Treat only changes strictly greater than seven semitones as pending, require three same-direction candidates within a two-semitone adjacent cluster, hold the prior accepted MIDI without advancing downstream evidence, and reset smoothing when a persistent jump or new onset is accepted. Never fold by 12 semitones or quantize the confirmed observation.
+- Store Canvas history in a 512-slot imperative buffer: it covers about 8.5 seconds even at 60 updates per second and exceeds ten seconds at the planned audio-hop rate, while the renderer crops the visible domain to exactly ten seconds. Preserve null MIDI observations as explicit path gaps and require callers to clear before restarting a timestamp timeline.
+- Schedule Canvas work directly from trace-buffer notifications, coalescing bursts into one `requestAnimationFrame` without React state. Resolve light/dark colors at draw time, resize backing pixels from actual CSS bounds and DPR, and cancel queued work whenever the document is hidden or the component unmounts.
 
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, and Dedicated Worker paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- RMS, end-to-end YIN, voiced/noise-gate decisions, standalone Hz/MIDI/note/cents conversion, temporal median smoothing, and octave guarding are implemented; Worker integration of the complete pitch pipeline, Canvas/live UI, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
+- RMS, end-to-end YIN, voiced/noise-gate decisions, standalone Hz/MIDI/note/cents conversion, temporal median smoothing, octave guarding, and the imperative Canvas trace surface are implemented. Worker integration of the complete pitch pipeline and real MIDI feed, live primary readout, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
 - The five-value causal median adds roughly two hop intervals of lag once full (about 85 ms at 48 kHz or 93 ms at 44.1 kHz with a 2048-sample hop). Its end-to-end contribution must be measured when the Worker pipeline and live readout are integrated against the 120 ms median latency target.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.
