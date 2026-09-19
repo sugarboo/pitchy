@@ -49,6 +49,20 @@ export interface Messages {
   pitchTraceLabel: string;
   liveReadout: string;
   deviceOnly: string;
+  freePracticeLabel: string;
+  practiceModeLabel: string;
+  targetPracticeLabel: string;
+  targetPracticeDescription: string;
+  targetNoteLabel: string;
+  centsFromTargetLabel: string;
+  targetToleranceHelp: string;
+  targetGaugeOverflow: string;
+  targetHitDurationLabel: string;
+  targetStableDurationLabel: string;
+  freePracticeDescription: string;
+  tuningA4Label: string;
+  tuningHelp: string;
+  tuningLocked: string;
   pitchStates: Record<PitchReadoutState, string>;
   centsFromNearestLabel: string;
   confidenceLabel: string;
@@ -129,6 +143,24 @@ const zhCn: Messages = {
   pitchTraceLabel: "最近十秒音高轨迹",
   liveReadout: "实时读数",
   deviceOnly: "仅本机",
+  freePracticeLabel: "自由练声",
+  practiceModeLabel: "练习模式",
+  targetPracticeLabel: "目标音练习",
+  targetPracticeDescription:
+    "选择 D2–C6 的目标音。偏差相对目标音计算，主读数始终显示实际检测音。模式、目标和基准在开始后固定，停止后可调整。",
+  targetNoteLabel: "目标音",
+  centsFromTargetLabel: "目标音偏差",
+  targetToleranceHelp:
+    "命中范围为目标音 ±20 音分；稳定命中还需达到稳定状态。仅累计相邻有效检测帧覆盖的时间，暂停或缺帧不补算。",
+  targetGaugeOverflow: "偏差超出指针的 ±50 音分范围，请以完整数值为准。",
+  targetHitDurationLabel: "目标命中时长（±20 音分）",
+  targetStableDurationLabel: "稳定命中时长",
+  freePracticeDescription:
+    "自由发声或滑音。音中心偏差表示距离最近十二平均律半音中心的偏差，不代表唱准率；正值偏高，负值偏低。",
+  tuningA4Label: "A4 基准频率（Hz）",
+  tuningHelp:
+    "范围 415–466 Hz，默认 440 Hz。输入超出范围时保留上次有效值。设置在本页面保留，刷新后恢复默认。",
+  tuningLocked: "本次练习使用固定基准；停止后可调整。",
   pitchStates: {
     waiting: "等待开始",
     silent: "未发声",
@@ -173,7 +205,7 @@ const zhCn: Messages = {
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "音频线程、音高引擎、实时轨迹、主读数与长音稳定度已接通；练习模式正在按依赖顺序推进。",
+  scopeNote: "自由与目标音练习已接通实时音高、轨迹和稳定度；会话总结与本地历史将继续按计划推进。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -286,6 +318,25 @@ const en: Messages = {
   pitchTraceLabel: "Pitch trace for the last ten seconds",
   liveReadout: "Live readout",
   deviceOnly: "On-device",
+  freePracticeLabel: "Free practice",
+  practiceModeLabel: "Practice mode",
+  targetPracticeLabel: "Target-note practice",
+  targetPracticeDescription:
+    "Choose a target from D2–C6. Deviation is relative to that target; the main readout always shows the detected note. Mode, target, and reference stay fixed until you stop.",
+  targetNoteLabel: "Target note",
+  centsFromTargetLabel: "Target-note deviation",
+  targetToleranceHelp:
+    "A hit is within ±20 cents of the target; a stable hit also requires the stable state. Only adjacent valid detection intervals count; pauses and missing frames add no time.",
+  targetGaugeOverflow:
+    "Deviation exceeds the pointer's ±50-cent range; use the full numeric value.",
+  targetHitDurationLabel: "Target hit duration (±20 cents)",
+  targetStableDurationLabel: "Stable hit duration",
+  freePracticeDescription:
+    "Sing freely or glide between notes. Note-center deviation measures distance from the nearest 12-TET semitone center, not singing accuracy; positive is sharp, negative is flat.",
+  tuningA4Label: "A4 reference frequency (Hz)",
+  tuningHelp:
+    "Range 415–466 Hz; default 440 Hz. Out-of-range input keeps the last valid value. This page retains the setting until reload.",
+  tuningLocked: "The reference stays fixed during this practice; stop to adjust it.",
   pitchStates: {
     waiting: "Waiting to start",
     silent: "Silent",
@@ -331,7 +382,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "Audio threads, pitch engine, live trace, primary readings, and sustained-note stability are connected. Practice modes are next.",
+    "Free and target-note practice now include live pitch, trace, and stability feedback. Session summaries and local history are next.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

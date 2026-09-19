@@ -52,6 +52,20 @@ afterEach(async () => {
 });
 
 describe("PitchCanvas", () => {
+  it("projects tuning without modifying stored pitch history", () => {
+    const canvas = document.createElement("canvas");
+    canvas.style.width = "200px";
+    canvas.style.height = "100px";
+    document.body.append(canvas);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas context missing");
+    const marker = vi.spyOn(context, "arc");
+    const trace = new PitchTraceBuffer();
+    trace.append({ timestampMs: 0, midi: 69 });
+    renderPitchCanvas(canvas, trace, 1000, 60, 80, 1);
+    expect(marker).toHaveBeenLastCalledWith(200, 50, 2.75, 0, Math.PI * 2);
+    expect(trace.at(0).midi).toBe(69);
+  });
   it("uses DPR-sized backing pixels and coalesces high-rate writes without React renders", async () => {
     setDevicePixelRatio(2);
     const requestFrame = vi.spyOn(window, "requestAnimationFrame");

@@ -20,11 +20,15 @@ body {
 }
 
 button,
+input,
+select,
 a {
   font: inherit;
 }
 
 button:focus-visible,
+input:focus-visible,
+select:focus-visible,
 a:focus-visible {
   outline: 3px solid var(--color-accent);
   outline-offset: 3px;
@@ -39,6 +43,61 @@ a:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.practice-controls {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+:where(.practice-controls) h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+:where(.practice-controls) p {
+  color: var(--color-muted);
+  line-height: 1.6;
+  font-size: 0.875rem;
+}
+
+.practice-controls input,
+.practice-controls select {
+  display: block;
+  width: min(100%, 180px);
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.practice-controls input:disabled,
+.practice-controls select:disabled {
+  opacity: 0.7;
+}
+
+.target-feedback {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.target-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.target-metrics dd {
+  margin: 4px 0;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .app-shell {

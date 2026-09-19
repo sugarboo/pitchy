@@ -291,364 +291,401 @@ test("runs one local AudioContext through pause, resume, and complete cleanup", 
   });
 });
 
-test("loads production audio-thread chunks and transfers synthetic PCM through the Worker", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
-    const workletModuleUrls: string[] = [];
-    const NativeAudioContext = window.AudioContext;
-    class InstrumentedAudioContext extends NativeAudioContext {
-      constructor(options?: AudioContextOptions) {
-        super(options);
-        const nativeAddModule = this.audioWorklet.addModule.bind(this.audioWorklet);
-        Object.defineProperty(this.audioWorklet, "addModule", {
-          configurable: true,
-          value: async (moduleUrl: string, moduleOptions?: WorkletOptions) => {
-            workletModuleUrls.push(new URL(moduleUrl, window.location.href).pathname);
-            await nativeAddModule(moduleUrl, moduleOptions);
-          },
-        });
+for (const scenario of ["free", "target-hit", "target-octave"] as const) {
+  test(`loads production audio threads for ${scenario}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+      const workletModuleUrls: string[] = [];
+      const NativeAudioContext = window.AudioContext;
+      class InstrumentedAudioContext extends NativeAudioContext {
+        constructor(options?: AudioContextOptions) {
+          super(options);
+          const nativeAddModule = this.audioWorklet.addModule.bind(this.audioWorklet);
+          Object.defineProperty(this.audioWorklet, "addModule", {
+            configurable: true,
+            value: async (moduleUrl: string, moduleOptions?: WorkletOptions) => {
+              workletModuleUrls.push(new URL(moduleUrl, window.location.href).pathname);
+              await nativeAddModule(moduleUrl, moduleOptions);
+            },
+          });
+        }
       }
-    }
-    Object.defineProperty(window, "AudioContext", {
-      configurable: true,
-      value: InstrumentedAudioContext,
-    });
-    Object.defineProperty(window, "__pitchyWorkletModuleUrls", {
-      configurable: true,
-      value: workletModuleUrls,
-    });
-    const pcmCapture = {
-      count: 0,
-      firstSequence: null as number | null,
-      firstFrameLength: null as number | null,
-      firstBufferByteLength: null as number | null,
-    };
-    const NativeAudioWorkletNode = window.AudioWorkletNode;
-    class InstrumentedAudioWorkletNode extends NativeAudioWorkletNode {
-      constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
-        super(context, name, options);
-        this.port.addEventListener("message", (event: MessageEvent<unknown>) => {
-          const message = event.data;
+      Object.defineProperty(window, "AudioContext", {
+        configurable: true,
+        value: InstrumentedAudioContext,
+      });
+      Object.defineProperty(window, "__pitchyWorkletModuleUrls", {
+        configurable: true,
+        value: workletModuleUrls,
+      });
+      const pcmCapture = {
+        count: 0,
+        firstSequence: null as number | null,
+        firstFrameLength: null as number | null,
+        firstBufferByteLength: null as number | null,
+      };
+      const NativeAudioWorkletNode = window.AudioWorkletNode;
+      class InstrumentedAudioWorkletNode extends NativeAudioWorkletNode {
+        constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
+          super(context, name, options);
+          this.port.addEventListener("message", (event: MessageEvent<unknown>) => {
+            const message = event.data;
+            if (
+              typeof message !== "object" ||
+              message === null ||
+              !("type" in message) ||
+              message.type !== "pcm-frame" ||
+              !("samples" in message) ||
+              !(message.samples instanceof Float32Array)
+            ) {
+              return;
+            }
+
+            pcmCapture.count += 1;
+            if (pcmCapture.firstFrameLength === null) {
+              pcmCapture.firstSequence =
+                "sequence" in message && typeof message.sequence === "number"
+                  ? message.sequence
+                  : null;
+              pcmCapture.firstFrameLength = message.samples.length;
+              pcmCapture.firstBufferByteLength = message.samples.buffer.byteLength;
+            }
+          });
+          this.port.start();
+        }
+      }
+      Object.defineProperty(window, "AudioWorkletNode", {
+        configurable: true,
+        value: InstrumentedAudioWorkletNode,
+      });
+      Object.defineProperty(window, "__pitchyPcmCapture", {
+        configurable: true,
+        value: pcmCapture,
+      });
+      const pitchWorker = {
+        moduleUrls: [] as string[],
+        optionTypes: [] as Array<WorkerType | undefined>,
+        optionNames: [] as Array<string | undefined>,
+        configureCount: 0,
+        processFrameCount: 0,
+        readyCount: 0,
+        processedCount: 0,
+        nonSilentCount: 0,
+        voicedCount: 0,
+        firstVoicedMidi: null as number | null,
+        firstNonSilentRms: null as number | null,
+        firstNonSilentRmsDbfs: null as number | null,
+        firstSequence: null as number | null,
+        firstFrameLength: null as number | null,
+        firstBufferByteLengthBefore: null as number | null,
+        firstBufferByteLengthAfter: null as number | null,
+        terminates: 0,
+      };
+      const NativeWorker = window.Worker;
+      class InstrumentedWorker extends NativeWorker {
+        constructor(scriptURL: string | URL, options?: WorkerOptions) {
+          super(scriptURL, options);
+          pitchWorker.moduleUrls.push(new URL(scriptURL, window.location.href).pathname);
+          pitchWorker.optionTypes.push(options?.type);
+          pitchWorker.optionNames.push(options?.name);
+          this.addEventListener("message", (event: MessageEvent<unknown>) => {
+            const message = event.data;
+            if (typeof message !== "object" || message === null || !("type" in message)) {
+              return;
+            }
+            if (message.type === "worker-ready") {
+              pitchWorker.readyCount += 1;
+            } else if (message.type === "frame-processed") {
+              pitchWorker.processedCount += 1;
+              if (
+                "voiced" in message &&
+                message.voiced === true &&
+                "midi" in message &&
+                typeof message.midi === "number" &&
+                Number.isFinite(message.midi)
+              ) {
+                pitchWorker.voicedCount += 1;
+                pitchWorker.firstVoicedMidi ??= message.midi;
+              }
+              if (
+                "rms" in message &&
+                typeof message.rms === "number" &&
+                Number.isFinite(message.rms) &&
+                message.rms > 0 &&
+                "rmsDbfs" in message &&
+                typeof message.rmsDbfs === "number" &&
+                Number.isFinite(message.rmsDbfs) &&
+                message.rmsDbfs > -160
+              ) {
+                pitchWorker.nonSilentCount += 1;
+                if (pitchWorker.firstNonSilentRms === null) {
+                  pitchWorker.firstNonSilentRms = message.rms;
+                  pitchWorker.firstNonSilentRmsDbfs = message.rmsDbfs;
+                }
+              }
+            }
+          });
+        }
+
+        override postMessage(
+          message: unknown,
+          transferOrOptions?: Transferable[] | StructuredSerializeOptions,
+        ): void {
+          let transferredBuffer: ArrayBuffer | null = null;
           if (
-            typeof message !== "object" ||
-            message === null ||
-            !("type" in message) ||
-            message.type !== "pcm-frame" ||
-            !("samples" in message) ||
-            !(message.samples instanceof Float32Array)
+            typeof message === "object" &&
+            message !== null &&
+            "type" in message &&
+            message.type === "configure"
           ) {
-            return;
-          }
-
-          pcmCapture.count += 1;
-          if (pcmCapture.firstFrameLength === null) {
-            pcmCapture.firstSequence =
-              "sequence" in message && typeof message.sequence === "number"
-                ? message.sequence
-                : null;
-            pcmCapture.firstFrameLength = message.samples.length;
-            pcmCapture.firstBufferByteLength = message.samples.buffer.byteLength;
-          }
-        });
-        this.port.start();
-      }
-    }
-    Object.defineProperty(window, "AudioWorkletNode", {
-      configurable: true,
-      value: InstrumentedAudioWorkletNode,
-    });
-    Object.defineProperty(window, "__pitchyPcmCapture", {
-      configurable: true,
-      value: pcmCapture,
-    });
-    const pitchWorker = {
-      moduleUrls: [] as string[],
-      optionTypes: [] as Array<WorkerType | undefined>,
-      optionNames: [] as Array<string | undefined>,
-      configureCount: 0,
-      processFrameCount: 0,
-      readyCount: 0,
-      processedCount: 0,
-      nonSilentCount: 0,
-      voicedCount: 0,
-      firstVoicedMidi: null as number | null,
-      firstNonSilentRms: null as number | null,
-      firstNonSilentRmsDbfs: null as number | null,
-      firstSequence: null as number | null,
-      firstFrameLength: null as number | null,
-      firstBufferByteLengthBefore: null as number | null,
-      firstBufferByteLengthAfter: null as number | null,
-      terminates: 0,
-    };
-    const NativeWorker = window.Worker;
-    class InstrumentedWorker extends NativeWorker {
-      constructor(scriptURL: string | URL, options?: WorkerOptions) {
-        super(scriptURL, options);
-        pitchWorker.moduleUrls.push(new URL(scriptURL, window.location.href).pathname);
-        pitchWorker.optionTypes.push(options?.type);
-        pitchWorker.optionNames.push(options?.name);
-        this.addEventListener("message", (event: MessageEvent<unknown>) => {
-          const message = event.data;
-          if (typeof message !== "object" || message === null || !("type" in message)) {
-            return;
-          }
-          if (message.type === "worker-ready") {
-            pitchWorker.readyCount += 1;
-          } else if (message.type === "frame-processed") {
-            pitchWorker.processedCount += 1;
-            if (
-              "voiced" in message &&
-              message.voiced === true &&
-              "midi" in message &&
-              typeof message.midi === "number" &&
-              Number.isFinite(message.midi)
-            ) {
-              pitchWorker.voicedCount += 1;
-              pitchWorker.firstVoicedMidi ??= message.midi;
-            }
-            if (
-              "rms" in message &&
-              typeof message.rms === "number" &&
-              Number.isFinite(message.rms) &&
-              message.rms > 0 &&
-              "rmsDbfs" in message &&
-              typeof message.rmsDbfs === "number" &&
-              Number.isFinite(message.rmsDbfs) &&
-              message.rmsDbfs > -160
-            ) {
-              pitchWorker.nonSilentCount += 1;
-              if (pitchWorker.firstNonSilentRms === null) {
-                pitchWorker.firstNonSilentRms = message.rms;
-                pitchWorker.firstNonSilentRmsDbfs = message.rmsDbfs;
-              }
+            pitchWorker.configureCount += 1;
+          } else if (
+            typeof message === "object" &&
+            message !== null &&
+            "type" in message &&
+            message.type === "process-frame" &&
+            "samples" in message &&
+            message.samples instanceof Float32Array
+          ) {
+            pitchWorker.processFrameCount += 1;
+            if (pitchWorker.firstFrameLength === null) {
+              pitchWorker.firstSequence =
+                "sequence" in message && typeof message.sequence === "number"
+                  ? message.sequence
+                  : null;
+              pitchWorker.firstFrameLength = message.samples.length;
+              transferredBuffer = message.samples.buffer;
+              pitchWorker.firstBufferByteLengthBefore = transferredBuffer.byteLength;
             }
           }
-        });
-      }
 
-      override postMessage(
-        message: unknown,
-        transferOrOptions?: Transferable[] | StructuredSerializeOptions,
-      ): void {
-        let transferredBuffer: ArrayBuffer | null = null;
-        if (
-          typeof message === "object" &&
-          message !== null &&
-          "type" in message &&
-          message.type === "configure"
-        ) {
-          pitchWorker.configureCount += 1;
-        } else if (
-          typeof message === "object" &&
-          message !== null &&
-          "type" in message &&
-          message.type === "process-frame" &&
-          "samples" in message &&
-          message.samples instanceof Float32Array
-        ) {
-          pitchWorker.processFrameCount += 1;
-          if (pitchWorker.firstFrameLength === null) {
-            pitchWorker.firstSequence =
-              "sequence" in message && typeof message.sequence === "number"
-                ? message.sequence
-                : null;
-            pitchWorker.firstFrameLength = message.samples.length;
-            transferredBuffer = message.samples.buffer;
-            pitchWorker.firstBufferByteLengthBefore = transferredBuffer.byteLength;
+          if (Array.isArray(transferOrOptions)) {
+            super.postMessage(message, transferOrOptions);
+          } else {
+            super.postMessage(message, transferOrOptions);
+          }
+          if (transferredBuffer) {
+            pitchWorker.firstBufferByteLengthAfter = transferredBuffer.byteLength;
           }
         }
 
-        if (Array.isArray(transferOrOptions)) {
-          super.postMessage(message, transferOrOptions);
-        } else {
-          super.postMessage(message, transferOrOptions);
-        }
-        if (transferredBuffer) {
-          pitchWorker.firstBufferByteLengthAfter = transferredBuffer.byteLength;
+        override terminate(): void {
+          pitchWorker.terminates += 1;
+          super.terminate();
         }
       }
+      Object.defineProperty(window, "Worker", {
+        configurable: true,
+        value: InstrumentedWorker,
+      });
+      Object.defineProperty(window, "__pitchyWorkerLifecycle", {
+        configurable: true,
+        value: pitchWorker,
+      });
+      let generatorContext: AudioContext | null = null;
+      let oscillator: OscillatorNode | null = null;
 
-      override terminate(): void {
-        pitchWorker.terminates += 1;
-        super.terminate();
-      }
-    }
-    Object.defineProperty(window, "Worker", {
-      configurable: true,
-      value: InstrumentedWorker,
-    });
-    Object.defineProperty(window, "__pitchyWorkerLifecycle", {
-      configurable: true,
-      value: pitchWorker,
-    });
-    let generatorContext: AudioContext | null = null;
-    let oscillator: OscillatorNode | null = null;
-
-    Object.defineProperty(window, "__pitchyCloseSyntheticInput", {
-      configurable: true,
-      value: async () => {
-        oscillator?.stop();
-        oscillator = null;
-        await generatorContext?.close();
-        generatorContext = null;
-      },
-    });
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: {
-        getUserMedia: async () => {
-          generatorContext = new AudioContext();
-          const destination = generatorContext.createMediaStreamDestination();
-          oscillator = generatorContext.createOscillator();
-          oscillator.frequency.value = 440;
-          oscillator.connect(destination);
-          oscillator.start();
-          await generatorContext.resume();
-          return destination.stream;
+      Object.defineProperty(window, "__pitchyCloseSyntheticInput", {
+        configurable: true,
+        value: async () => {
+          oscillator?.stop();
+          oscillator = null;
+          await generatorContext?.close();
+          generatorContext = null;
         },
-      },
+      });
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            generatorContext = new AudioContext();
+            const destination = generatorContext.createMediaStreamDestination();
+            oscillator = generatorContext.createOscillator();
+            oscillator.frequency.value = 440;
+            oscillator.connect(destination);
+            oscillator.start();
+            await generatorContext.resume();
+            return destination.stream;
+          },
+        },
+      });
     });
-  });
 
-  try {
-    await page.goto("/");
-    await page.getByRole("button", { name: /开始练声/ }).click();
+    try {
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "自由练声" })).toBeVisible();
+      const tuning = page.getByRole("spinbutton", { name: "A4 基准频率（Hz）" });
+      await tuning.fill("414");
+      await tuning.blur();
+      await expect(tuning).toHaveValue("440");
+      await tuning.fill(scenario === "free" ? "415" : "440");
+      await tuning.blur();
+      if (scenario !== "free") {
+        await page.getByLabel("练习模式", { exact: true }).selectOption("target");
+        await page
+          .getByLabel("目标音", { exact: true })
+          .selectOption(scenario === "target-hit" ? "69" : "57");
+      }
+      await page.getByRole("button", { name: /开始练声/ }).click();
+      await expect(tuning).toBeDisabled();
+      await expect(page.getByLabel("练习模式", { exact: true })).toBeDisabled();
+      if (scenario !== "free")
+        await expect(page.getByLabel("目标音", { exact: true })).toBeDisabled();
 
-    await expect(page.getByText("本地音频环境已启动")).toBeVisible();
-    const workletModuleUrls = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __pitchyWorkletModuleUrls: string[];
-          }
-        ).__pitchyWorkletModuleUrls,
-    );
-    expect(workletModuleUrls).toHaveLength(1);
-    expect(workletModuleUrls[0]).toMatch(/^\/assets\/pcm-capture\.worklet-[\w-]+\.js$/);
-    expect(workletModuleUrls[0]).not.toContain(".ts");
-
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (
-              window as typeof window & {
-                __pitchyPcmCapture: { count: number };
-              }
-            ).__pitchyPcmCapture.count,
-        ),
-      )
-      .toBeGreaterThan(0);
-    await expect(page.locator(".note-name")).toHaveText("A4");
-    await expect(page.locator(".frequency")).toContainText("440");
-    await expect(page.locator(".detection-state")).toHaveText("稳定");
-    await expect(page.locator(".readout-metrics")).toContainText("稳定度");
-    await expect(page.locator(".readout-metrics")).toContainText("/ 100");
-    await expect(page.locator(".readout-metrics")).toContainText("连续发声");
-    const pcmCapture = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __pitchyPcmCapture: Record<string, number | null>;
-          }
-        ).__pitchyPcmCapture,
-    );
-    expect(pcmCapture).toMatchObject({
-      firstSequence: 0,
-      firstFrameLength: 4096,
-      firstBufferByteLength: 4096 * Float32Array.BYTES_PER_ELEMENT,
-    });
-    const workerLifecycle = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __pitchyWorkerLifecycle: {
-              moduleUrls: string[];
-              optionTypes: Array<string | undefined>;
-              optionNames: Array<string | undefined>;
-              configureCount: number;
-              readyCount: number;
-            };
-          }
-        ).__pitchyWorkerLifecycle,
-    );
-    expect(workerLifecycle.moduleUrls).toHaveLength(1);
-    expect(workerLifecycle.moduleUrls[0]).toMatch(/^\/assets\/pitch\.worker-[\w-]+\.js$/);
-    expect(workerLifecycle.moduleUrls[0]).not.toContain(".ts");
-    expect(workerLifecycle.optionTypes).toEqual(["module"]);
-    expect(workerLifecycle.optionNames).toEqual(["pitchy-pitch-worker"]);
-    expect(workerLifecycle.configureCount).toBe(1);
-    expect(workerLifecycle.readyCount).toBe(1);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (
-              window as typeof window & {
-                __pitchyWorkerLifecycle: { processedCount: number };
-              }
-            ).__pitchyWorkerLifecycle.processedCount,
-        ),
-      )
-      .toBeGreaterThan(0);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (
-              window as typeof window & {
-                __pitchyWorkerLifecycle: { nonSilentCount: number };
-              }
-            ).__pitchyWorkerLifecycle.nonSilentCount,
-        ),
-      )
-      .toBeGreaterThan(0);
-    const processedWorkerFrame = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __pitchyWorkerLifecycle: Record<string, number | null>;
-          }
-        ).__pitchyWorkerLifecycle,
-    );
-    expect(processedWorkerFrame).toMatchObject({
-      processFrameCount: expect.any(Number),
-      firstSequence: 0,
-      firstFrameLength: 4096,
-      firstBufferByteLengthBefore: 4096 * Float32Array.BYTES_PER_ELEMENT,
-      firstBufferByteLengthAfter: 0,
-    });
-    expect(processedWorkerFrame.processFrameCount).toBeGreaterThan(0);
-    expect(processedWorkerFrame.voicedCount).toBeGreaterThan(0);
-    expect(processedWorkerFrame.firstVoicedMidi).toBeCloseTo(69, 1);
-    const firstNonSilentRms = processedWorkerFrame.firstNonSilentRms;
-    const firstNonSilentRmsDbfs = processedWorkerFrame.firstNonSilentRmsDbfs;
-    expect(typeof firstNonSilentRms).toBe("number");
-    expect(typeof firstNonSilentRmsDbfs).toBe("number");
-    expect(firstNonSilentRms).toBeGreaterThan(0);
-    expect(firstNonSilentRmsDbfs).toBeGreaterThan(-160);
-    expect(firstNonSilentRmsDbfs).toBeCloseTo(20 * Math.log10(firstNonSilentRms as number), 6);
-    await expect(page.getByText("本地音频环境已启动")).toBeVisible();
-    await page.getByRole("button", { name: "停止" }).click();
-    await expect(page.getByRole("button", { name: /开始练声/ })).toBeEnabled();
-    expect(
-      await page.evaluate(
+      await expect(page.getByText("本地音频环境已启动")).toBeVisible();
+      const workletModuleUrls = await page.evaluate(
         () =>
           (
             window as typeof window & {
-              __pitchyWorkerLifecycle: { terminates: number };
+              __pitchyWorkletModuleUrls: string[];
             }
-          ).__pitchyWorkerLifecycle.terminates,
-      ),
-    ).toBe(1);
-  } finally {
-    await page.evaluate(async () => {
-      const closeSyntheticInput = (
-        window as typeof window & { __pitchyCloseSyntheticInput?: () => Promise<void> }
-      ).__pitchyCloseSyntheticInput;
-      await closeSyntheticInput?.();
-    });
-  }
-});
+          ).__pitchyWorkletModuleUrls,
+      );
+      expect(workletModuleUrls).toHaveLength(1);
+      expect(workletModuleUrls[0]).toMatch(/^\/assets\/pcm-capture\.worklet-[\w-]+\.js$/);
+      expect(workletModuleUrls[0]).not.toContain(".ts");
+
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as typeof window & {
+                  __pitchyPcmCapture: { count: number };
+                }
+              ).__pitchyPcmCapture.count,
+          ),
+        )
+        .toBeGreaterThan(0);
+      await expect(page.locator(".note-name")).toHaveText(scenario === "free" ? "A#4" : "A4");
+      await expect(page.locator(".frequency")).toContainText("440");
+      await expect(page.locator(".cents-value")).toContainText(
+        scenario === "free" ? "音中心偏差" : "目标音偏差",
+      );
+      if (scenario === "free")
+        await expect(page.locator(".cents-value strong")).toContainText("+1.");
+      if (scenario === "target-octave") {
+        await expect(page.locator(".cents-value strong")).toContainText("1,200");
+        await expect(page.locator(".target-reference")).toContainText("A3");
+        await expect(page.getByTestId("target-hit-duration")).toHaveText("0.0 秒");
+      }
+      await expect(page.locator(".detection-state")).toHaveText("稳定");
+      if (scenario === "target-hit") {
+        await expect(page.getByTestId("target-stable-duration")).not.toHaveText("0.0 秒");
+        await expect(page.getByTestId("target-hit-duration")).not.toHaveText("0.0 秒");
+      }
+      await expect(page.locator(".readout-metrics")).toContainText("稳定度");
+      await expect(page.locator(".readout-metrics")).toContainText("/ 100");
+      await expect(page.locator(".readout-metrics")).toContainText("连续发声");
+      const pcmCapture = await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __pitchyPcmCapture: Record<string, number | null>;
+            }
+          ).__pitchyPcmCapture,
+      );
+      expect(pcmCapture).toMatchObject({
+        firstSequence: 0,
+        firstFrameLength: 4096,
+        firstBufferByteLength: 4096 * Float32Array.BYTES_PER_ELEMENT,
+      });
+      const workerLifecycle = await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __pitchyWorkerLifecycle: {
+                moduleUrls: string[];
+                optionTypes: Array<string | undefined>;
+                optionNames: Array<string | undefined>;
+                configureCount: number;
+                readyCount: number;
+              };
+            }
+          ).__pitchyWorkerLifecycle,
+      );
+      expect(workerLifecycle.moduleUrls).toHaveLength(1);
+      expect(workerLifecycle.moduleUrls[0]).toMatch(/^\/assets\/pitch\.worker-[\w-]+\.js$/);
+      expect(workerLifecycle.moduleUrls[0]).not.toContain(".ts");
+      expect(workerLifecycle.optionTypes).toEqual(["module"]);
+      expect(workerLifecycle.optionNames).toEqual(["pitchy-pitch-worker"]);
+      expect(workerLifecycle.configureCount).toBe(1);
+      expect(workerLifecycle.readyCount).toBe(1);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as typeof window & {
+                  __pitchyWorkerLifecycle: { processedCount: number };
+                }
+              ).__pitchyWorkerLifecycle.processedCount,
+          ),
+        )
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as typeof window & {
+                  __pitchyWorkerLifecycle: { nonSilentCount: number };
+                }
+              ).__pitchyWorkerLifecycle.nonSilentCount,
+          ),
+        )
+        .toBeGreaterThan(0);
+      const processedWorkerFrame = await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __pitchyWorkerLifecycle: Record<string, number | null>;
+            }
+          ).__pitchyWorkerLifecycle,
+      );
+      expect(processedWorkerFrame).toMatchObject({
+        processFrameCount: expect.any(Number),
+        firstSequence: 0,
+        firstFrameLength: 4096,
+        firstBufferByteLengthBefore: 4096 * Float32Array.BYTES_PER_ELEMENT,
+        firstBufferByteLengthAfter: 0,
+      });
+      expect(processedWorkerFrame.processFrameCount).toBeGreaterThan(0);
+      expect(processedWorkerFrame.voicedCount).toBeGreaterThan(0);
+      expect(processedWorkerFrame.firstVoicedMidi).toBeCloseTo(69, 1);
+      const firstNonSilentRms = processedWorkerFrame.firstNonSilentRms;
+      const firstNonSilentRmsDbfs = processedWorkerFrame.firstNonSilentRmsDbfs;
+      expect(typeof firstNonSilentRms).toBe("number");
+      expect(typeof firstNonSilentRmsDbfs).toBe("number");
+      expect(firstNonSilentRms).toBeGreaterThan(0);
+      expect(firstNonSilentRmsDbfs).toBeGreaterThan(-160);
+      expect(firstNonSilentRmsDbfs).toBeCloseTo(20 * Math.log10(firstNonSilentRms as number), 6);
+      await expect(page.getByText("本地音频环境已启动")).toBeVisible();
+      await page.getByRole("button", { name: /暂停练声/ }).click();
+      await expect(tuning).toBeDisabled();
+      await page.getByRole("button", { name: /恢复练声/ }).click();
+      await page.getByRole("button", { name: "停止" }).click();
+      await expect(tuning).toBeEnabled();
+      await expect(tuning).toHaveValue(scenario === "free" ? "415" : "440");
+      await expect(page.locator(".note-name")).toHaveText("—");
+      await expect(page.getByRole("button", { name: /开始练声/ })).toBeEnabled();
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __pitchyWorkerLifecycle: { terminates: number };
+              }
+            ).__pitchyWorkerLifecycle.terminates,
+        ),
+      ).toBe(1);
+    } finally {
+      await page.evaluate(async () => {
+        const closeSyntheticInput = (
+          window as typeof window & { __pitchyCloseSyntheticInput?: () => Promise<void> }
+        ).__pitchyCloseSyntheticInput;
+        await closeSyntheticInput?.();
+      });
+    }
+  });
+}

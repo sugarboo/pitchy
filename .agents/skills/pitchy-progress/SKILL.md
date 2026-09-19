@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-08-19`
-- Current milestone: `M3`
-- Current backlog item: `VT-018`
+- Last updated: `2026-09-19`
+- Current milestone: `M4`
+- Current backlog item: `VT-020`
 - Current state: `pending`
-- Recommended route: `practice-ui`
+- Recommended route: `session-data`
 
 ## Current handoff
 
-VT-017 is complete. `src/domain/stability.ts` maintains an immutable approximately one-second window over guarded/smoothed continuous MIDI, derives median absolute pitch spread plus a Theil-Sen trend, and maps their separately monotonic bounded components to a 0–100 stability score only after minimum evidence is available. The sustained-note reducer distinguishes silent/onset/stable/unstable/low-confidence with enter/exit hysteresis, tracks continuous voiced and current stable durations, and retains the session's stable MIDI range. The Worker-owned pitch pipeline resets stability evidence on silence and confirmed jumps while preserving session range, and exact protocol v4 exposes only finite small metrics without PCM. The localized readout now presents stability, spread, trend, continuous voice, stable duration, and stable range; production E2E proves a built 440 Hz Worklet/Worker stream reaches A4 and the stable state. VT-018 is next: implement free-practice mode using nearest-note center deviation terminology and current local tuning without introducing target-note scoring.
+VT-019 is complete. `src/features/practice/PracticeControls.tsx` now owns free/target mode, D2–C6 MIDI-keyed target selection, and 415–466 Hz A4 tuning; all are locked during a session including pause. `src/domain/target-practice.ts` validates configuration, computes full target cents, and accumulates inclusive ±20-cent hit/stable-hit intervals. `LivePitchStore` counts every received frame before React throttling, requires adjacent sequences with both endpoints qualifying, ignores paused results, and breaks continuity on audio status changes. Readout preserves actual detected note/Hz, displays target note/Hz separately, and explains pointer clipping beyond ±50 cents without truncating the numeric deviation. Worker protocol v4 and DSP are unchanged. Production E2E covers free tuning, A4 target hits, and A3 target / A4 input with +1200 cents and zero hits. Next is VT-020 session aggregation: reuse the explicit configuration and observed-interval semantics, capture final metrics before `reset()` clears live data on stop, add full summary and ±10/20/30 target ratios with free-mode values null. Persistence remains VT-021. Real-device M3 latency acceptance is still outstanding.
 
 First command: `pnpm skills:route`
 
@@ -44,8 +44,8 @@ First command: `pnpm skills:route`
 | VT-015 | complete | Fixed-capacity imperative trace storage, ten-second Canvas rendering, DPR/theme/visibility handling, and browser regressions pass without per-frame React state. |
 | VT-016 | complete | Stateful Worker pitch pipeline, protocol v3, direct Canvas feed, throttled localized readout, and production 440 Hz E2E pass. |
 | VT-017 | complete | Robust one-second stability statistics, five-state sustained-note reducer, Worker protocol v4 integration, localized readout, deterministic tests, E2E, and Node/Chromium benchmarks pass. |
-| VT-018 | pending | Complete free-practice mode. |
-| VT-019 | pending | Complete target-note mode. |
+| VT-018 | complete | Explicit localized free mode, validated session-locked A4 tuning, coherent readout/range/Canvas projection, deterministic boundary tests, and production E2E pass. |
+| VT-019 | complete | Locked target/mode selection, full target cents, observed hit/stable durations, bilingual UI, pause/gap tests, and production hit/octave E2E pass. |
 | VT-020 | pending | Add session aggregation. |
 | VT-021 | pending | Add local database and migrations. |
 | VT-022 | pending | Add summary and history. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 79 files under Node 24 after existing Windows checkout line endings were temporarily normalized; unrelated line-ending-only changes were restored afterward. |
+| `pnpm check` | pass | Biome checked 84 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 21 unit files, 495 tests, including robust stability/vibrato/drift/missing-evidence sequences, state hysteresis and durations, pipeline resets, exact v4 protocol validation, and all prior DSP/audio lifecycle coverage. |
-| `pnpm test:browser` | pass | 2 browser files, 15 Chromium tests, including localized live stability/spread/trend/durations/range, unvoiced fail-closed text, retained audio across locale/theme changes, Canvas behavior, and Strict Mode cleanup. |
-| `pnpm build` | pass | Vite emitted separate 21.64 kB full-DSP Worker and 1.53 kB Worklet assets; 10 entries / 278.01 KiB are precached. |
-| `pnpm test:e2e` | pass | All 6 Chromium lifecycle, privacy, Worker/Worklet, transfer, and production synthetic-audio tests pass; the built 440 Hz stream renders A4 and reaches the stable state with a finite score. |
-| `pnpm check:size` | pass | Compressed app shell is 92.1 KiB of the 500 KiB budget. |
-| `pnpm benchmark:dsp --run` | pass | Under Node 24, the full 4096-sample pipeline with stability averaged 1.48 ms in Node and 1.61 ms in Chromium. Standalone 4096-frame stability/state sequences averaged 145.78/141.04 ms total (about 0.036/0.034 ms per frame). No environment-sensitive CI threshold is asserted. |
+| `pnpm test` | pass | 23 unit files, 530 tests; target tuning/range, octave deviations, tolerance boundaries, missing evidence, sequence gaps/replays, pause/reset, full-rate aggregation, and bilingual copy coverage. |
+| `pnpm test:browser` | pass | 2 browser files, 18 Chromium tests; free/target controls, full +1200-cent deviation with actual A4 retained, locked configuration, localization/theme without audio rebuild, and Canvas regressions. |
+| `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 286.35 KiB precached. |
+| `pnpm test:e2e` | pass | 8 Chromium tests; production audio threads cover free tuning, positive A4 target hit/stable time, A3 target with A4 input and zero hit time, pause/resume/cleanup, and existing privacy checks. |
+| `pnpm check:size` | pass | Compressed app shell is 94.7 KiB of the 500 KiB budget. |
+| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018/VT-019; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
 
 ## Durable decisions
 
@@ -102,14 +102,15 @@ First command: `pnpm skills:route`
 - Schedule Canvas work directly from trace-buffer notifications, coalescing bursts into one `requestAnimationFrame` without React state. Resolve light/dark colors at draw time, resize backing pixels from actual CSS bounds and DPR, and cancel queued work whenever the document is hidden or the component unmounts.
 - Own adaptive gate, octave guard, and median-filter state inside one Worker runtime session. Convert accepted raw frequency to continuous MIDI before guarding; freeze downstream smoothing while a large jump is pending, emit a null trace observation, and reset smoothing before inserting a confirmed jump or new onset.
 - Feed every validated Worker result into `PitchTraceBuffer`, but expose React through `LivePitchStore` at a trailing maximum of 25 Hz. Clear pending timers, the published snapshot, and trace history together whenever a fresh session starts or stops; pause/resume retains the same timeline.
-- Keep the primary readout coherent by deriving displayed note, Hz, and nearest-note cents from the same guarded/smoothed MIDI value at the default A4 = 440 Hz. Show confidence and approximate dBFS independently even when no stable note is displayed; user-selectable tuning remains a later practice/settings integration.
+- Keep Worker/trace MIDI in canonical A4=440 coordinates. Free-mode display applies `12 * log2(440 / tuningA4Hz)` to note/cents, stable range, and Canvas; measured Hz and translation-invariant stability metrics stay unchanged. Freeze tuning during each session, including pause, to keep future aggregation coherent. Retain the page setting after stop; durable tuning storage is deferred to VT-021.
+- Fix mode and target alongside tuning for each session. Offer D2–C6 because every target remains inside 65–1200 Hz across all supported tunings. Target deviation uses the tuned continuous MIDI without octave folding; ±20 cents is a labeled product tolerance. Count only adjacent observed intervals whose endpoints both hit, requiring both endpoints stable for stable-hit time. First frames, gaps, unvoiced/pending observations, and pause boundaries add no inferred time. Aggregate before UI throttling, clear on new session/stop, and keep free-mode target progress null.
 - Derive stability from an immutable approximately one-second guarded/smoothed MIDI window using median absolute deviation in cents and a Theil-Sen cents-per-second trend. Require eight valid frames and a 0.6 valid ratio, then score with the lower of separately monotonic spread and trend components; all initial thresholds remain `CALIBRATION_REQUIRED` for VT-025.
 - Own the stability window and sustained-note reducer inside the Worker session. Reset the window on unvoiced boundaries and confirmed guarded jumps, preserve the session-wide stable MIDI range, retain raw voiced duration across temporarily withheld octave candidates, and use separate 75/60 enter/exit scores to avoid stable-state flicker.
 
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, Dedicated Worker, full pitch pipeline, and main readout paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- RMS, YIN, voiced/noise-gate decisions, Hz/MIDI/note/cents conversion, temporal median smoothing, octave guarding, stability/sustained-note metrics, Worker integration, high-rate Canvas trace, and throttled primary readout are implemented. Practice modes, storage, offline reopen, and real-device lifecycle behavior remain unimplemented.
+- RMS, YIN, voiced/noise-gate decisions, Hz/MIDI/note/cents conversion, temporal median smoothing, octave guarding, stability/sustained-note metrics, Worker integration, Canvas, throttled readout, and free/target practice are implemented. Session summaries, storage, offline reopen, and real-device lifecycle QA remain outstanding. Practice settings reset on page reload; target counters currently clear on stop until VT-020 captures the summary.
 - A first 4096-sample window takes about 85 ms at 48 kHz or 93 ms at 44.1 kHz before compute. The 40 ms UI publication interval is below the normal 42.7/46.4 ms hop interval, and full-DSP compute averaged about 1.5 ms in automated benchmarks, but input-to-paint latency has not yet been instrumented on the baseline devices and persistent pitch changes can still incur median/guard confirmation lag.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.

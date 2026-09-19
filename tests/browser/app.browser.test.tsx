@@ -361,75 +361,130 @@ describe("App", () => {
     );
   });
 
-  it("renders a validated Worker pitch frame and feeds the Canvas trace without rebuilding audio", async () => {
-    const context = new FakeAudioContext("suspended", 48_000);
-    const workletNode = new FakeAudioWorkletNode();
-    const worker = new FakeWorker();
-    const pitchTrace = new PitchTraceBuffer();
-    const createAudioContext = vi.fn(() => context);
-    const createWorker = vi.fn(() => worker);
-    await renderApp({
-      supportOverride: createSupportedSnapshot(),
-      requestMicrophone: vi.fn(async () => createStream(new FakeTrack())),
-      createAudioContext,
-      createAudioWorkletNode: vi.fn(() => workletNode),
-      createWorker,
-      pitchTrace,
-    });
-    await act(async () => document.querySelector<HTMLButtonElement>(".primary-button")?.click());
-
-    await act(async () => {
-      workletNode.port.emit({
-        type: "pcm-frame",
-        sequence: 0,
-        samples: new Float32Array(4096),
+  it.each([
+    { tuningHz: 440, target: false },
+    { tuningHz: 415, target: false },
+    { tuningHz: 440, target: true },
+  ])(
+    "renders practice at $tuningHz with target=$target without rebuilding audio",
+    async ({ tuningHz, target }) => {
+      const context = new FakeAudioContext("suspended", 48_000);
+      const workletNode = new FakeAudioWorkletNode();
+      const worker = new FakeWorker();
+      const pitchTrace = new PitchTraceBuffer();
+      const createAudioContext = vi.fn(() => context);
+      const createWorker = vi.fn(() => worker);
+      await renderApp({
+        supportOverride: createSupportedSnapshot(),
+        requestMicrophone: vi.fn(async () => createStream(new FakeTrack())),
+        createAudioContext,
+        createAudioWorkletNode: vi.fn(() => workletNode),
+        createWorker,
+        pitchTrace,
       });
-      worker.emit({
-        type: "frame-processed",
-        protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
-        sequence: 0,
-        timestampMs: (4096 / 48_000) * 1000,
-        rms: 0.5,
-        rmsDbfs: -6.020_599_913_279_624,
-        frequencyHz: 440,
-        confidence: 0.99,
-        voiced: true,
-        midi: 69,
-        stabilityScore: 96,
-        pitchSpreadCents: 3.2,
-        trendCentsPerSecond: -2.5,
-        validFrameRatio: 1,
-        continuousVoicedDurationMs: 640,
-        currentStableDurationMs: 240,
-        minStableMidi: 68.9,
-        maxStableMidi: 69.1,
-        state: "stable",
+      if (target) {
+        await act(async () => {
+          const mode = document.querySelector<HTMLSelectElement>("#practice-mode");
+          if (!mode) throw new Error("Mode control missing");
+          mode.value = "target";
+          mode.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await act(async () => {
+          const note = document.querySelector<HTMLSelectElement>("#target-note");
+          if (!note) throw new Error("Target control missing");
+          note.value = "57";
+          note.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      }
+      const tuningInput = document.querySelector<HTMLInputElement>("#tuning-a4");
+      if (!tuningInput) throw new Error("Tuning input missing");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          tuningInput,
+          String(tuningHz),
+        );
+        tuningInput.dispatchEvent(new Event("input", { bubbles: true }));
       });
-    });
+      await act(async () => document.querySelector<HTMLButtonElement>(".primary-button")?.click());
+      expect(tuningInput.disabled).toBe(true);
+      expect(document.querySelector<HTMLSelectElement>("#practice-mode")?.disabled).toBe(true);
+      if (target)
+        expect(document.querySelector<HTMLSelectElement>("#target-note")?.disabled).toBe(true);
 
-    expect(document.querySelector(".note-name")?.textContent).toBe("A4");
-    expect(document.querySelector(".frequency")?.textContent).toBe("440.0 Hz");
-    expect(document.querySelector(".cents-value strong")?.textContent).toBe("0.0 音分");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("99%");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("-6.0 dBFS");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("96 / 100");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("3.2 音分");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("−2.5 音分/秒");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.6 秒");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.2 秒");
-    expect(pitchTrace.size).toBe(1);
-    expect(pitchTrace.at(0).midi).toBe(69);
+      await act(async () => {
+        workletNode.port.emit({
+          type: "pcm-frame",
+          sequence: 0,
+          samples: new Float32Array(4096),
+        });
+        worker.emit({
+          type: "frame-processed",
+          protocolVersion: PITCH_WORKER_PROTOCOL_VERSION,
+          sequence: 0,
+          timestampMs: (4096 / 48_000) * 1000,
+          rms: 0.5,
+          rmsDbfs: -6.020_599_913_279_624,
+          frequencyHz: 440,
+          confidence: 0.99,
+          voiced: true,
+          midi: 69,
+          stabilityScore: 96,
+          pitchSpreadCents: 3.2,
+          trendCentsPerSecond: -2.5,
+          validFrameRatio: 1,
+          continuousVoicedDurationMs: 640,
+          currentStableDurationMs: 240,
+          minStableMidi: 68.9,
+          maxStableMidi: 69.1,
+          state: "stable",
+        });
+      });
 
-    await act(async () => document.querySelector<HTMLButtonElement>(".language-toggle")?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
+      expect(document.querySelector(".note-name")?.textContent).toBe(
+        tuningHz === 440 ? "A4" : "A#4",
+      );
+      expect(document.querySelector(".frequency")?.textContent).toBe("440.0 Hz");
+      expect(document.querySelector(".cents-value strong")?.textContent).toBe(
+        target ? "+1,200.0 音分" : tuningHz === 440 ? "0.0 音分" : "+1.3 音分",
+      );
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain(
+        tuningHz === 440 ? "A4" : "A#4",
+      );
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("99%");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("-6.0 dBFS");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("96 / 100");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("3.2 音分");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("−2.5 音分/秒");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.6 秒");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("0.2 秒");
+      expect(pitchTrace.size).toBe(1);
+      expect(pitchTrace.at(0).midi).toBe(69);
 
-    expect(document.querySelector(".cents-value")?.textContent).toContain("Note-center deviation");
-    expect(document.querySelector(".detection-state")?.textContent).toBe("Stable");
-    expect(document.querySelector(".readout-metrics")?.textContent).toContain("Pitch spread");
-    expect(createAudioContext).toHaveBeenCalledOnce();
-    expect(createWorker).toHaveBeenCalledOnce();
-    expect(pitchTrace.size).toBe(1);
-  });
+      await act(async () => document.querySelector<HTMLButtonElement>(".language-toggle")?.click());
+      await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
+
+      expect(document.querySelector(".cents-value")?.textContent).toContain(
+        target ? "Target-note deviation" : "Note-center deviation",
+      );
+      expect(document.querySelector(".detection-state")?.textContent).toBe("Stable");
+      expect(document.querySelector(".readout-metrics")?.textContent).toContain("Pitch spread");
+      expect(createAudioContext).toHaveBeenCalledOnce();
+      expect(createWorker).toHaveBeenCalledOnce();
+      expect(pitchTrace.size).toBe(1);
+      expect(tuningInput.value).toBe(String(tuningHz));
+      expect(document.querySelector(".practice-controls h2")?.textContent).toBe(
+        target ? "Target-note practice" : "Free practice",
+      );
+      if (target) {
+        expect(document.querySelector(".target-reference")?.textContent).toContain("A3");
+        expect(document.querySelector('[data-testid="target-hit-duration"]')?.textContent).toBe(
+          "0.0 s",
+        );
+      } else {
+        expect(document.querySelector(".target-feedback")).toBeNull();
+      }
+    },
+  );
 
   it("keeps input level and confidence visible without inventing a note for unvoiced input", async () => {
     const context = new FakeAudioContext("suspended", 48_000);

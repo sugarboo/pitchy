@@ -10,7 +10,11 @@ import type { AudioEngineStatus } from "../audio/audio-types";
 import { PitchCanvas } from "../components/PitchCanvas";
 import { PitchReadout } from "../components/PitchReadout";
 import { PitchTraceBuffer } from "../components/pitch-trace";
+import { DEFAULT_TARGET_MIDI, type PracticeMode } from "../domain/target-practice";
+import { DEFAULT_TUNING_A4_HZ } from "../domain/tuning";
+import { tuningMidiOffset } from "../features/practice/free-practice";
 import { LivePitchStore } from "../features/practice/live-pitch";
+import { PracticeControls } from "../features/practice/PracticeControls";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
@@ -50,6 +54,9 @@ export function App({
   pitchTrace: pitchTraceOverride,
 }: AppProps = {}) {
   const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
+  const [tuningA4Hz, setTuningA4Hz] = useState(DEFAULT_TUNING_A4_HZ);
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>("free");
+  const [targetMidi, setTargetMidi] = useState(DEFAULT_TARGET_MIDI);
   const [audioEngine] = useState(() =>
     createAudioEngine({
       ...(requestMicrophone ? { requestMicrophone } : {}),
@@ -132,10 +139,17 @@ export function App({
     };
   }, [audioEngine]);
 
-  useEffect(
-    () => audioEngine.subscribeWorkerFrames(livePitchStore.acceptWorkerFrame),
-    [audioEngine, livePitchStore],
-  );
+  useEffect(() => {
+    const syncStatus = (): void =>
+      livePitchStore.setPaused(audioEngine.getSnapshot().status !== "running");
+    syncStatus();
+    const unsubscribeStatus = audioEngine.subscribe(syncStatus);
+    const unsubscribeFrames = audioEngine.subscribeWorkerFrames(livePitchStore.acceptWorkerFrame);
+    return () => {
+      unsubscribeStatus();
+      unsubscribeFrames();
+    };
+  }, [audioEngine, livePitchStore]);
 
   useEffect(() => {
     if (
@@ -155,7 +169,11 @@ export function App({
       } else if (audioSnapshot.status === "suspended") {
         await audioEngine.resume();
       } else if (audioSnapshot.status === "idle" || audioSnapshot.status === "error") {
-        livePitchStore.reset();
+        livePitchStore.configure({
+          mode: practiceMode,
+          targetMidi: practiceMode === "target" ? targetMidi : null,
+          tuningA4Hz,
+        });
         await audioEngine.start();
       }
     } catch (error) {
@@ -213,6 +231,16 @@ export function App({
           <p className="eyebrow">{messages.heroEyebrow}</p>
           <h1 id="welcome-title">{messages.heroTitle}</h1>
           <p className="hero-description">{messages.heroDescription}</p>
+          <PracticeControls
+            messages={messages}
+            tuningA4Hz={tuningA4Hz}
+            locked={!isStartAction}
+            onTuningChange={setTuningA4Hz}
+            mode={practiceMode}
+            targetMidi={targetMidi}
+            onModeChange={setPracticeMode}
+            onTargetChange={setTargetMidi}
+          />
 
           <div className="hero-actions">
             <div className="microphone-action">
@@ -279,8 +307,15 @@ export function App({
             locale={locale}
             messages={messages}
             snapshot={livePitchSnapshot}
+            tuningA4Hz={tuningA4Hz}
+            targetMidi={practiceMode === "target" ? targetMidi : null}
           />
-          <PitchCanvas label={messages.pitchTraceLabel} theme={theme} trace={pitchTrace} />
+          <PitchCanvas
+            label={messages.pitchTraceLabel}
+            theme={theme}
+            trace={pitchTrace}
+            midiOffset={tuningMidiOffset(tuningA4Hz)}
+          />
           <p className="preview-caption">{messages.previewCaption}</p>
         </section>
       </section>

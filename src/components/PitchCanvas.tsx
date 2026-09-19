@@ -20,6 +20,7 @@ export interface PitchCanvasProps {
   readonly windowMs?: number;
   readonly minMidi?: number;
   readonly maxMidi?: number;
+  readonly midiOffset?: number;
 }
 
 interface CanvasMetrics {
@@ -101,6 +102,7 @@ function drawTrace(
   minMidi: number,
   maxMidi: number,
   palette: PitchCanvasPalette,
+  midiOffset: number,
 ): void {
   const viewportEndMs = trace.latestTimestampMs;
   if (viewportEndMs === null) {
@@ -125,7 +127,7 @@ function drawTrace(
     }
 
     const x = ((point.timestampMs - viewportStartMs) / windowMs) * width;
-    const boundedMidi = Math.min(maxMidi, Math.max(minMidi, point.midi));
+    const boundedMidi = Math.min(maxMidi, Math.max(minMidi, point.midi + midiOffset));
     const y = ((maxMidi - boundedMidi) / (maxMidi - minMidi)) * height;
     if (segmentOpen) {
       context.lineTo(x, y);
@@ -160,13 +162,15 @@ export function renderPitchCanvas(
   windowMs: number,
   minMidi: number,
   maxMidi: number,
+  midiOffset = 0,
 ): boolean {
   if (
     !Number.isFinite(windowMs) ||
     windowMs <= 0 ||
     !Number.isFinite(minMidi) ||
     !Number.isFinite(maxMidi) ||
-    minMidi >= maxMidi
+    minMidi >= maxMidi ||
+    !Number.isFinite(midiOffset)
   ) {
     throw new RangeError("Pitch canvas ranges must be finite and ordered");
   }
@@ -182,7 +186,17 @@ export function renderPitchCanvas(
   context.clearRect(0, 0, metrics.width, metrics.height);
   context.save();
   drawGrid(context, metrics.width, metrics.height, minMidi, maxMidi, palette);
-  drawTrace(context, trace, metrics.width, metrics.height, windowMs, minMidi, maxMidi, palette);
+  drawTrace(
+    context,
+    trace,
+    metrics.width,
+    metrics.height,
+    windowMs,
+    minMidi,
+    maxMidi,
+    palette,
+    midiOffset,
+  );
   context.restore();
   return true;
 }
@@ -194,6 +208,7 @@ export function PitchCanvas({
   windowMs = DEFAULT_PITCH_TRACE_WINDOW_MS,
   minMidi = DEFAULT_PITCH_TRACE_MIN_MIDI,
   maxMidi = DEFAULT_PITCH_TRACE_MAX_MIDI,
+  midiOffset = 0,
 }: PitchCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -207,7 +222,7 @@ export function PitchCanvas({
     let animationFrameId: number | null = null;
     const draw = (): void => {
       animationFrameId = null;
-      renderPitchCanvas(canvas, trace, windowMs, minMidi, maxMidi);
+      renderPitchCanvas(canvas, trace, windowMs, minMidi, maxMidi, midiOffset);
     };
     const scheduleDraw = (): void => {
       if (document.visibilityState === "hidden" || animationFrameId !== null) {
@@ -243,7 +258,7 @@ export function PitchCanvas({
         window.cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [maxMidi, minMidi, theme, trace, windowMs]);
+  }, [maxMidi, minMidi, midiOffset, theme, trace, windowMs]);
 
   return (
     <canvas ref={canvasRef} className="pitch-canvas" role="img" aria-label={label}>

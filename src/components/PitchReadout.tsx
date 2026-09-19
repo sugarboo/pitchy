@@ -1,8 +1,10 @@
 import type { CSSProperties } from "react";
 import type { Locale, Messages, PitchReadoutState } from "../app/i18n";
 import { midiToNoteName } from "../domain/notes";
-import { centsFromNearestMidi, nearestMidi } from "../domain/pitch";
-import { midiToFrequencyHz } from "../domain/tuning";
+import { nearestMidi } from "../domain/pitch";
+import { targetDeviation } from "../domain/target-practice";
+import { DEFAULT_TUNING_A4_HZ, midiToFrequencyHz } from "../domain/tuning";
+import { getFreePitchFeedback, tuningMidiOffset } from "../features/practice/free-practice";
 import type { LivePitchSnapshot } from "../features/practice/live-pitch";
 
 export interface PitchReadoutProps {
@@ -10,6 +12,8 @@ export interface PitchReadoutProps {
   readonly locale: Locale;
   readonly messages: Messages;
   readonly snapshot: LivePitchSnapshot;
+  readonly tuningA4Hz?: number;
+  readonly targetMidi?: number | null;
 }
 
 function resolveReadoutState(active: boolean, snapshot: LivePitchSnapshot): PitchReadoutState {
@@ -28,13 +32,25 @@ function formatSignedValue(value: number, locale: Locale, unit: string): string 
   return `${sign}${formatted} ${unit}`;
 }
 
-export function PitchReadout({ active, locale, messages, snapshot }: PitchReadoutProps) {
+export function PitchReadout({
+  active,
+  locale,
+  messages,
+  snapshot,
+  tuningA4Hz = DEFAULT_TUNING_A4_HZ,
+  targetMidi = null,
+}: PitchReadoutProps) {
   const state = resolveReadoutState(active, snapshot);
   const midi = active ? (snapshot?.midi ?? null) : null;
-  const noteName =
-    midi === null || midi === undefined ? messages.notAvailable : midiToNoteName(nearestMidi(midi));
-  const frequencyHz = midi === null || midi === undefined ? null : midiToFrequencyHz(midi);
-  const cents = midi === null || midi === undefined ? null : centsFromNearestMidi(midi);
+  const feedback = getFreePitchFeedback(midi, tuningA4Hz);
+  const noteName = feedback?.noteName ?? messages.notAvailable;
+  const frequencyHz = feedback?.frequencyHz ?? null;
+  const cents =
+    targetMidi === null
+      ? (feedback?.centsFromNearest ?? null)
+      : targetDeviation(feedback?.midi ?? null, targetMidi);
+  const targetProgress = active ? snapshot?.targetProgress : null;
+  const midiOffset = tuningMidiOffset(tuningA4Hz);
   const confidence = active && snapshot !== null ? snapshot.confidence : null;
   const rmsDbfs = active && snapshot !== null ? snapshot.rmsDbfs : null;
   const stabilityScore = active && snapshot !== null ? snapshot.stabilityScore : null;
@@ -50,8 +66,8 @@ export function PitchReadout({ active, locale, messages, snapshot }: PitchReadou
     snapshot.minStableMidi !== null &&
     snapshot.maxStableMidi !== null
       ? [
-          midiToNoteName(nearestMidi(snapshot.minStableMidi)),
-          midiToNoteName(nearestMidi(snapshot.maxStableMidi)),
+          midiToNoteName(nearestMidi(snapshot.minStableMidi + midiOffset)),
+          midiToNoteName(nearestMidi(snapshot.maxStableMidi + midiOffset)),
         ]
       : null;
   const markerPosition = cents === null ? 50 : Math.min(100, Math.max(0, cents + 50));
@@ -75,7 +91,9 @@ export function PitchReadout({ active, locale, messages, snapshot }: PitchReadou
       </div>
 
       <div className="cents-value">
-        <span>{messages.centsFromNearestLabel}</span>
+        <span>
+          {targetMidi === null ? messages.centsFromNearestLabel : messages.centsFromTargetLabel}
+        </span>
         <strong>
           {cents === null
             ? messages.notAvailable
@@ -90,6 +108,38 @@ export function PitchReadout({ active, locale, messages, snapshot }: PitchReadou
         </span>
         <span>+50</span>
       </div>
+
+      {targetMidi !== null && (
+        <div className="target-feedback">
+          <p className="target-reference">
+            {messages.targetNoteLabel}: {midiToNoteName(targetMidi)} ·{" "}
+            {midiToFrequencyHz(targetMidi, tuningA4Hz).toLocaleString(locale, {
+              maximumFractionDigits: 1,
+            })}{" "}
+            Hz
+          </p>
+          <p>{messages.targetToleranceHelp}</p>
+          {cents !== null && Math.abs(cents) > 50 && <p>{messages.targetGaugeOverflow}</p>}
+          <dl className="target-metrics">
+            <div>
+              <dt>{messages.targetHitDurationLabel}</dt>
+              <dd data-testid="target-hit-duration">
+                {targetProgress == null
+                  ? messages.notAvailable
+                  : `${(targetProgress.hitDurationMs / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${messages.secondsUnit}`}
+              </dd>
+            </div>
+            <div>
+              <dt>{messages.targetStableDurationLabel}</dt>
+              <dd data-testid="target-stable-duration">
+                {targetProgress == null
+                  ? messages.notAvailable
+                  : `${(targetProgress.stableHitDurationMs / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${messages.secondsUnit}`}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      )}
 
       <dl className="readout-metrics">
         <div>

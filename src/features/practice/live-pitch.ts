@@ -1,5 +1,14 @@
 import type { PitchFrameProcessedMessage } from "../../audio/workers/worker-protocol";
 import type { PitchTraceBuffer } from "../../components/pitch-trace";
+import {
+  advanceTargetProgress,
+  assertPracticeConfiguration,
+  createTargetProgress,
+  type PracticeConfiguration,
+  type TargetProgress,
+  targetDeviation,
+} from "../../domain/target-practice";
+import { tuningMidiOffset } from "./free-practice";
 
 export const DEFAULT_LIVE_READOUT_INTERVAL_MS = 40;
 
@@ -9,7 +18,9 @@ export interface LivePitchScheduler {
   clearTimeout(timeoutId: ReturnType<typeof setTimeout>): void;
 }
 
-export type LivePitchSnapshot = Readonly<PitchFrameProcessedMessage> | null;
+export type LivePitchSnapshot =
+  | (Readonly<PitchFrameProcessedMessage> & { readonly targetProgress?: TargetProgress | null })
+  | null;
 export type LivePitchListener = () => void;
 
 const DEFAULT_SCHEDULER: LivePitchScheduler = {
@@ -28,7 +39,10 @@ export class LivePitchStore {
   readonly #scheduler: LivePitchScheduler;
   readonly #listeners = new Set<LivePitchListener>();
   #snapshot: LivePitchSnapshot = null;
-  #pending: Readonly<PitchFrameProcessedMessage> | null = null;
+  #pending: LivePitchSnapshot = null;
+  #configuration: PracticeConfiguration = { mode: "free", targetMidi: null, tuningA4Hz: 440 };
+  #targetProgress = createTargetProgress();
+  #paused = false;
   #lastPublishedAt = Number.NEGATIVE_INFINITY;
   #timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -53,7 +67,30 @@ export class LivePitchStore {
   };
 
   readonly acceptWorkerFrame = (message: Readonly<PitchFrameProcessedMessage>): void => {
-    const snapshot = Object.freeze({ ...message });
+    if (this.#paused) return;
+    const target = this.#configuration.targetMidi;
+    if (this.#configuration.mode === "target" && target !== null) {
+      const midi =
+        message.voiced && message.midi !== null
+          ? message.midi + tuningMidiOffset(this.#configuration.tuningA4Hz)
+          : null;
+      this.#targetProgress = advanceTargetProgress(this.#targetProgress, {
+        sequence: message.sequence,
+        timestampMs: message.timestampMs,
+        cents: targetDeviation(midi, target),
+        stable: message.state === "stable",
+      });
+    }
+    const snapshot = Object.freeze({
+      ...message,
+      targetProgress:
+        this.#configuration.mode === "target"
+          ? Object.freeze({
+              hitDurationMs: this.#targetProgress.hitDurationMs,
+              stableHitDurationMs: this.#targetProgress.stableHitDurationMs,
+            })
+          : null,
+    });
     this.#trace.append({ timestampMs: snapshot.timestampMs, midi: snapshot.midi });
     this.#pending = snapshot;
 
@@ -75,6 +112,17 @@ export class LivePitchStore {
     }
   };
 
+  configure(configuration: PracticeConfiguration): void {
+    assertPracticeConfiguration(configuration);
+    this.#configuration = { ...configuration };
+    this.reset();
+  }
+
+  setPaused(paused: boolean): void {
+    this.#paused = paused;
+    if (paused) this.#targetProgress = { ...this.#targetProgress, previous: null };
+  }
+
   reset(): void {
     const shouldNotify = this.#snapshot !== null;
     if (this.#timeoutId !== null) {
@@ -82,6 +130,7 @@ export class LivePitchStore {
       this.#timeoutId = null;
     }
     this.#pending = null;
+    this.#targetProgress = createTargetProgress();
     this.#snapshot = null;
     this.#lastPublishedAt = Number.NEGATIVE_INFINITY;
     this.#trace.clear();

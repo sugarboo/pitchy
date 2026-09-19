@@ -67,6 +67,44 @@ function createFrame(sequence: number, midi: number | null = 69): PitchFrameProc
 }
 
 describe("live pitch store", () => {
+  it("aggregates every target frame before UI throttling and excludes pause boundaries", () => {
+    const scheduler = new FakeScheduler();
+    const store = new LivePitchStore(new PitchTraceBuffer(), 40, scheduler);
+    store.configure({ mode: "target", targetMidi: 69, tuningA4Hz: 440 });
+    for (let sequence = 0; sequence < 5; sequence++) store.acceptWorkerFrame(createFrame(sequence));
+    scheduler.advanceBy(40);
+    expect(store.getSnapshot()?.targetProgress).toEqual({
+      hitDurationMs: 40,
+      stableHitDurationMs: 40,
+    });
+    store.setPaused(true);
+    store.acceptWorkerFrame(createFrame(5));
+    scheduler.advanceBy(5000);
+    expect(store.getSnapshot()?.sequence).toBe(4);
+    store.setPaused(false);
+    store.acceptWorkerFrame(createFrame(6));
+    store.acceptWorkerFrame(createFrame(7));
+    scheduler.advanceBy(40);
+    expect(store.getSnapshot()?.targetProgress?.hitDurationMs).toBe(50);
+    store.reset();
+    store.acceptWorkerFrame(createFrame(0));
+    expect(store.getSnapshot()?.targetProgress?.hitDurationMs).toBe(0);
+    store.configure({ mode: "free", targetMidi: null, tuningA4Hz: 440 });
+    store.acceptWorkerFrame(createFrame(0));
+    expect(store.getSnapshot()?.targetProgress).toBeNull();
+  });
+
+  it("uses selected tuning and rejects held/null octave candidates for target time", () => {
+    const scheduler = new FakeScheduler();
+    const store = new LivePitchStore(new PitchTraceBuffer(), 40, scheduler);
+    store.configure({ mode: "target", targetMidi: 70, tuningA4Hz: 415 });
+    store.acceptWorkerFrame(createFrame(0));
+    store.acceptWorkerFrame(createFrame(1));
+    store.acceptWorkerFrame({ ...createFrame(2), midi: null, state: "onset" });
+    store.acceptWorkerFrame(createFrame(3));
+    scheduler.advanceBy(40);
+    expect(store.getSnapshot()?.targetProgress?.hitDurationMs).toBe(10);
+  });
   it("feeds every frame to the trace while rate-limiting React snapshots", () => {
     const trace = new PitchTraceBuffer(128);
     const scheduler = new FakeScheduler();
