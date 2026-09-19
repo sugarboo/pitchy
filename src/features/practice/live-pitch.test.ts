@@ -67,6 +67,43 @@ function createFrame(sequence: number, midi: number | null = 69): PitchFrameProc
 }
 
 describe("live pitch store", () => {
+  it("finalizes all frames before stop clears live data and starts a fresh session after restart", () => {
+    const scheduler = new FakeScheduler();
+    const store = new LivePitchStore(new PitchTraceBuffer(), 40, scheduler);
+    store.configure({ mode: "target", targetMidi: 69, tuningA4Hz: 440 });
+    store.syncAudioStatus("requesting-permission", null);
+    expect(store.getCompletedSession()).toBeNull();
+    store.syncAudioStatus("running", 48000);
+    store.acceptWorkerFrame(createFrame(0));
+    store.acceptWorkerFrame(createFrame(1));
+    store.acceptWorkerFrame(createFrame(2));
+    expect(store.getSnapshot()?.sequence).toBe(0);
+    scheduler.advanceBy(100);
+    store.syncAudioStatus("stopping", 48000);
+    const result = store.getCompletedSession();
+    store.reset();
+    store.syncAudioStatus("idle", null);
+    expect(store.getCompletedSession()).toBe(result);
+    expect(result?.summary.voicedDurationMs).toBe(20);
+    expect(result?.summary.within10CentsRatio).toBe(1);
+    expect(store.getSnapshot()).toBeNull();
+    store.configure({ mode: "free", targetMidi: null, tuningA4Hz: 415 });
+    store.syncAudioStatus("running", 44100);
+    expect(store.getCompletedSession()).toBeNull();
+    store.acceptWorkerFrame(createFrame(0));
+    store.syncAudioStatus("error", null);
+    expect(store.getCompletedSession()?.endReason).toBe("interrupted");
+    expect(store.getCompletedSession()?.summary.voicedDurationMs).toBe(0);
+    expect(store.getCompletedSession()?.summary.actualSampleRate).toBe(44100);
+  });
+
+  it("does not create a summary when permission fails before audio runs", () => {
+    const store = new LivePitchStore(new PitchTraceBuffer(), 40, new FakeScheduler());
+    store.configure({ mode: "free", targetMidi: null, tuningA4Hz: 440 });
+    store.syncAudioStatus("requesting-permission", null);
+    store.syncAudioStatus("error", null);
+    expect(store.getCompletedSession()).toBeNull();
+  });
   it("aggregates every target frame before UI throttling and excludes pause boundaries", () => {
     const scheduler = new FakeScheduler();
     const store = new LivePitchStore(new PitchTraceBuffer(), 40, scheduler);

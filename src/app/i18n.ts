@@ -59,6 +59,19 @@ export interface Messages {
   targetGaugeOverflow: string;
   targetHitDurationLabel: string;
   targetStableDurationLabel: string;
+  sessionResultTitle: string;
+  sessionMemoryOnly: string;
+  sessionInterrupted: string;
+  sessionDurationLabel: string;
+  voicedDurationLabel: string;
+  stableRatioLabel: string;
+  longestStableLabel: string;
+  medianStabilityLabel: string;
+  within10Label: string;
+  within20Label: string;
+  within30Label: string;
+  insufficientData: string;
+  sessionMetricHelp: string;
   freePracticeDescription: string;
   tuningA4Label: string;
   tuningHelp: string;
@@ -88,7 +101,7 @@ export interface Messages {
   missingCapabilities: (labels: string) => string;
   progressEyebrow: string;
   sliceHeading: string;
-  stages: Record<"foundation" | "audio" | "pitch" | "practice", string>;
+  stages: Record<"foundation" | "audio" | "pitch" | "practice" | "sessions", string>;
   stageStates: Record<"complete" | "active" | "pending", string>;
   scopeNote: string;
   medicalDisclaimer: string;
@@ -155,6 +168,20 @@ const zhCn: Messages = {
   targetGaugeOverflow: "偏差超出指针的 ±50 音分范围，请以完整数值为准。",
   targetHitDurationLabel: "目标命中时长（±20 音分）",
   targetStableDurationLabel: "稳定命中时长",
+  sessionResultTitle: "本次练习结果",
+  sessionMemoryOnly: "结果仅保留在当前页面；刷新或开始新的练习后清除，尚未保存到历史。",
+  sessionInterrupted: "练习意外中断，已保留中断前的结果，仅在当前页面可用。",
+  sessionDurationLabel: "练习总时长（含暂停）",
+  voicedDurationLabel: "有效发声时长",
+  stableRatioLabel: "稳定发声占比",
+  longestStableLabel: "最长稳定长音",
+  medianStabilityLabel: "稳定度中位数（近似）",
+  within10Label: "±10 音分时间占比",
+  within20Label: "±20 音分时间占比",
+  within30Label: "±30 音分时间占比",
+  insufficientData: "数据不足",
+  sessionMetricHelp:
+    "占比以相邻有效音高帧覆盖的发声时间为分母，静音、暂停与缺帧不计入。稳定度中位数按有效区间时长加权，精度为 0.1 分；这些指标仅供练习参考。",
   freePracticeDescription:
     "自由发声或滑音。音中心偏差表示距离最近十二平均律半音中心的偏差，不代表唱准率；正值偏高，负值偏低。",
   tuningA4Label: "A4 基准频率（Hz）",
@@ -199,13 +226,14 @@ const zhCn: Messages = {
     audio: "音频线程",
     pitch: "YIN 音高引擎",
     practice: "实时练声界面",
+    sessions: "会话与本地数据",
   },
   stageStates: {
     complete: "已完成",
     active: "进行中",
     pending: "待开始",
   },
-  scopeNote: "自由与目标音练习已接通实时音高、轨迹和稳定度；会话总结与本地历史将继续按计划推进。",
+  scopeNote: "已接通会话统计与页面内结果预览；本地保存和完整历史页正在按计划推进。",
   medicalDisclaimer: "不用于医疗诊断，也不能替代声乐老师或专业检查。",
   privacyFooter: "默认无第三方分析、广告或云端音频处理。",
   updateReady: "新版本已准备好，确认后再刷新。",
@@ -331,6 +359,22 @@ const en: Messages = {
     "Deviation exceeds the pointer's ±50-cent range; use the full numeric value.",
   targetHitDurationLabel: "Target hit duration (±20 cents)",
   targetStableDurationLabel: "Stable hit duration",
+  sessionResultTitle: "Practice result",
+  sessionMemoryOnly:
+    "This result stays on this page until reload or the next practice. It has not been saved to history.",
+  sessionInterrupted:
+    "Practice was interrupted. Results up to the interruption remain available on this page only.",
+  sessionDurationLabel: "Session duration (including pauses)",
+  voicedDurationLabel: "Valid voiced duration",
+  stableRatioLabel: "Stable voiced ratio",
+  longestStableLabel: "Longest stable tone",
+  medianStabilityLabel: "Median stability (approximate)",
+  within10Label: "Time within ±10 cents",
+  within20Label: "Time within ±20 cents",
+  within30Label: "Time within ±30 cents",
+  insufficientData: "Insufficient data",
+  sessionMetricHelp:
+    "Ratios use voiced time covered by adjacent valid pitch frames, excluding silence, pauses, and missing frames. Median stability is duration-weighted with 0.1-point resolution. These metrics are practice references only.",
   freePracticeDescription:
     "Sing freely or glide between notes. Note-center deviation measures distance from the nearest 12-TET semitone center, not singing accuracy; positive is sharp, negative is flat.",
   tuningA4Label: "A4 reference frequency (Hz)",
@@ -375,6 +419,7 @@ const en: Messages = {
     audio: "Audio threads",
     pitch: "YIN pitch engine",
     practice: "Live practice interface",
+    sessions: "Sessions and local data",
   },
   stageStates: {
     complete: "Complete",
@@ -382,7 +427,7 @@ const en: Messages = {
     pending: "Not started",
   },
   scopeNote:
-    "Free and target-note practice now include live pitch, trace, and stability feedback. Session summaries and local history are next.",
+    "Session statistics and an in-page result preview are connected. Local storage and full history views are next.",
   medicalDisclaimer:
     "Not for medical diagnosis and not a substitute for a teacher or clinical exam.",
   privacyFooter: "No third-party analytics, advertising, or cloud audio processing by default.",

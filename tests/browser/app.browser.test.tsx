@@ -359,6 +359,13 @@ describe("App", () => {
     expect(document.querySelector<HTMLButtonElement>(".primary-button")?.textContent).toContain(
       "Start practicing",
     );
+    expect(document.querySelector(".session-result")?.textContent).toContain("Practice result");
+    expect(document.querySelector(".session-result")?.textContent).toContain("Insufficient data");
+    await act(async () => document.querySelector<HTMLButtonElement>(".language-toggle")?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
+    expect(document.querySelector(".session-result")?.textContent).toContain("数据不足");
+    expect(document.querySelector(".session-result")?.textContent).toContain("尚未保存到历史");
+    expect(createAudioContext).toHaveBeenCalledOnce();
   });
 
   it.each([

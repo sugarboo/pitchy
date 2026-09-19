@@ -15,6 +15,7 @@ import { DEFAULT_TUNING_A4_HZ } from "../domain/tuning";
 import { tuningMidiOffset } from "../features/practice/free-practice";
 import { LivePitchStore } from "../features/practice/live-pitch";
 import { PracticeControls } from "../features/practice/PracticeControls";
+import { SessionResult } from "../features/practice/SessionResult";
 import { type BrowserSupportSnapshot, detectBrowserCapabilities } from "./browser-capabilities";
 import { getMessages } from "./i18n";
 import { usePreferences } from "./preferences";
@@ -23,7 +24,8 @@ const DELIVERY_STAGES = [
   { id: "M0", label: "foundation", state: "complete" },
   { id: "M1", label: "audio", state: "complete" },
   { id: "M2", label: "pitch", state: "complete" },
-  { id: "M3", label: "practice", state: "active" },
+  { id: "M3", label: "practice", state: "complete" },
+  { id: "M4", label: "sessions", state: "active" },
 ] as const;
 
 export interface AppProps {
@@ -79,6 +81,11 @@ export function App({
     livePitchStore.subscribe,
     livePitchStore.getSnapshot,
     livePitchStore.getSnapshot,
+  );
+  const completedSession = useSyncExternalStore(
+    livePitchStore.subscribe,
+    livePitchStore.getCompletedSession,
+    livePitchStore.getCompletedSession,
   );
   const { locale, setLocale, theme, setTheme } = usePreferences();
   const messages = getMessages(locale);
@@ -140,8 +147,10 @@ export function App({
   }, [audioEngine]);
 
   useEffect(() => {
-    const syncStatus = (): void =>
-      livePitchStore.setPaused(audioEngine.getSnapshot().status !== "running");
+    const syncStatus = (): void => {
+      const snapshot = audioEngine.getSnapshot();
+      livePitchStore.syncAudioStatus(snapshot.status, snapshot.sampleRate);
+    };
     syncStatus();
     const unsubscribeStatus = audioEngine.subscribe(syncStatus);
     const unsubscribeFrames = audioEngine.subscribeWorkerFrames(livePitchStore.acceptWorkerFrame);
@@ -222,7 +231,7 @@ export function App({
               <span lang={nextLocale}>{nextLocale === "en" ? "EN" : "中文"}</span>
             </button>
           </fieldset>
-          <span className="phase-badge">v0.1 · M3</span>
+          <span className="phase-badge">v0.1 · M4</span>
         </div>
       </header>
 
@@ -319,6 +328,10 @@ export function App({
           <p className="preview-caption">{messages.previewCaption}</p>
         </section>
       </section>
+
+      {completedSession !== null && (
+        <SessionResult session={completedSession} locale={locale} messages={messages} />
+      )}
 
       <section className="status-grid" aria-label={messages.foundationStatusLabel}>
         <article className="status-card capability-card">

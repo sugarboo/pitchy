@@ -1,5 +1,8 @@
+import type { AudioEngineStatus } from "../../audio/audio-types";
 import type { PitchFrameProcessedMessage } from "../../audio/workers/worker-protocol";
 import type { PitchTraceBuffer } from "../../components/pitch-trace";
+import type { CompletedPracticeSession } from "../../domain/session";
+import { SessionAggregator } from "../../domain/session-aggregator";
 import {
   advanceTargetProgress,
   assertPracticeConfiguration,
@@ -43,6 +46,9 @@ export class LivePitchStore {
   #configuration: PracticeConfiguration = { mode: "free", targetMidi: null, tuningA4Hz: 440 };
   #targetProgress = createTargetProgress();
   #paused = false;
+  #session: SessionAggregator | null = null;
+  #sessionArmed = false;
+  #completedSession: CompletedPracticeSession | null = null;
   #lastPublishedAt = Number.NEGATIVE_INFINITY;
   #timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -60,6 +66,7 @@ export class LivePitchStore {
   }
 
   readonly getSnapshot = (): LivePitchSnapshot => this.#snapshot;
+  readonly getCompletedSession = (): CompletedPracticeSession | null => this.#completedSession;
 
   readonly subscribe = (listener: LivePitchListener): (() => void) => {
     this.#listeners.add(listener);
@@ -68,6 +75,7 @@ export class LivePitchStore {
 
   readonly acceptWorkerFrame = (message: Readonly<PitchFrameProcessedMessage>): void => {
     if (this.#paused) return;
+    this.#session?.accept(message);
     const target = this.#configuration.targetMidi;
     if (this.#configuration.mode === "target" && target !== null) {
       const midi =
@@ -114,12 +122,53 @@ export class LivePitchStore {
 
   configure(configuration: PracticeConfiguration): void {
     assertPracticeConfiguration(configuration);
+    if (this.#session !== null)
+      throw new Error("Stop the current session before changing practice configuration");
     this.#configuration = { ...configuration };
+    this.#sessionArmed = true;
     this.reset();
+  }
+
+  /** Called synchronously from engine status notifications, before React resets live data. */
+  syncAudioStatus(status: AudioEngineStatus, sampleRate: number | null): void {
+    if (
+      status === "running" &&
+      this.#sessionArmed &&
+      this.#session === null &&
+      sampleRate !== null
+    ) {
+      this.#session = new SessionAggregator(
+        this.#configuration,
+        {
+          id: crypto.randomUUID(),
+          startedAt: new Date().toISOString(),
+          actualSampleRate: sampleRate,
+          inputDeviceLabel: null,
+        },
+        this.#scheduler.now(),
+      );
+      this.#sessionArmed = false;
+      this.#completedSession = null;
+      this.#notify();
+    }
+    this.setPaused(status !== "running");
+    if (status === "stopping" || status === "error" || status === "idle") {
+      if (this.#session !== null) {
+        this.#completedSession = this.#session.finish(
+          new Date().toISOString(),
+          this.#scheduler.now(),
+          status === "error" ? "interrupted" : "stopped",
+        );
+        this.#session = null;
+        this.#notify();
+      }
+      this.#sessionArmed = false;
+    }
   }
 
   setPaused(paused: boolean): void {
     this.#paused = paused;
+    this.#session?.setPaused(paused);
     if (paused) this.#targetProgress = { ...this.#targetProgress, previous: null };
   }
 

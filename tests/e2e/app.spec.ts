@@ -668,6 +668,15 @@ for (const scenario of ["free", "target-hit", "target-octave"] as const) {
       await expect(tuning).toBeEnabled();
       await expect(tuning).toHaveValue(scenario === "free" ? "415" : "440");
       await expect(page.locator(".note-name")).toHaveText("—");
+      const result = page.getByRole("region", { name: "本次练习结果" });
+      await expect(result).toBeVisible();
+      await expect(result).toContainText("尚未保存到历史");
+      await expect(page.getByTestId("session-voiced")).not.toHaveText("0.0 秒");
+      if (scenario === "target-hit")
+        await expect(page.getByTestId("session-within10")).toHaveText("100%");
+      if (scenario === "target-octave")
+        await expect(page.getByTestId("session-within10")).toHaveText("0%");
+      if (scenario === "free") await expect(page.getByTestId("session-within10")).toHaveCount(0);
       await expect(page.getByRole("button", { name: /开始练声/ })).toBeEnabled();
       expect(
         await page.evaluate(

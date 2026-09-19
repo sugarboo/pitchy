@@ -22,6 +22,19 @@ describe("free practice feedback", () => {
       "targetGaugeOverflow",
       "targetHitDurationLabel",
       "targetStableDurationLabel",
+      "sessionResultTitle",
+      "sessionMemoryOnly",
+      "sessionInterrupted",
+      "sessionDurationLabel",
+      "voicedDurationLabel",
+      "stableRatioLabel",
+      "longestStableLabel",
+      "medianStabilityLabel",
+      "within10Label",
+      "within20Label",
+      "within30Label",
+      "insufficientData",
+      "sessionMetricHelp",
     ] as const) {
       expect(messages[key].trim().length).toBeGreaterThan(0);
       expect(messages[key]).not.toBe(key);
