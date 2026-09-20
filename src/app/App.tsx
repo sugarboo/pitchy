@@ -11,8 +11,8 @@ import { PitchCanvas } from "../components/PitchCanvas";
 import { PitchReadout } from "../components/PitchReadout";
 import { PitchTraceBuffer } from "../components/pitch-trace";
 import { DEFAULT_TARGET_MIDI, type PracticeMode } from "../domain/target-practice";
-import { DEFAULT_TUNING_A4_HZ } from "../domain/tuning";
 import { tuningMidiOffset } from "../features/practice/free-practice";
+import { LocalDataControls } from "../features/practice/LocalDataControls";
 import { LivePitchStore } from "../features/practice/live-pitch";
 import { PracticeControls } from "../features/practice/PracticeControls";
 import { SessionResult } from "../features/practice/SessionResult";
@@ -56,7 +56,6 @@ export function App({
   pitchTrace: pitchTraceOverride,
 }: AppProps = {}) {
   const [support] = useState(() => supportOverride ?? detectBrowserCapabilities());
-  const [tuningA4Hz, setTuningA4Hz] = useState(DEFAULT_TUNING_A4_HZ);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("free");
   const [targetMidi, setTargetMidi] = useState(DEFAULT_TARGET_MIDI);
   const [audioEngine] = useState(() =>
@@ -87,7 +86,8 @@ export function App({
     livePitchStore.getCompletedSession,
     livePitchStore.getCompletedSession,
   );
-  const { locale, setLocale, theme, setTheme } = usePreferences();
+  const { locale, setLocale, theme, setTheme, tuningA4Hz, setTuningA4Hz, storageNotice } =
+    usePreferences();
   const messages = getMessages(locale);
   const unavailableMessage = support.missingRequiredIds
     .map((id) => messages.capabilityLabels[id])
@@ -234,6 +234,11 @@ export function App({
           <span className="phase-badge">v0.1 · M4</span>
         </div>
       </header>
+      {storageNotice !== null && (
+        <p role="alert">
+          {storageNotice === "failed" ? messages.localStorageFailed : messages.invalidPreferences}
+        </p>
+      )}
 
       <section className="hero" aria-labelledby="welcome-title">
         <div className="hero-copy">
@@ -389,6 +394,7 @@ export function App({
         </article>
       </section>
 
+      <LocalDataControls messages={messages} />
       <footer className="footer">
         <p>{messages.medicalDisclaimer}</p>
         <p>{messages.privacyFooter}</p>

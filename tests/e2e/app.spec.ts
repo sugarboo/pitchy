@@ -670,7 +670,7 @@ for (const scenario of ["free", "target-hit", "target-octave"] as const) {
       await expect(page.locator(".note-name")).toHaveText("—");
       const result = page.getByRole("region", { name: "本次练习结果" });
       await expect(result).toBeVisible();
-      await expect(result).toContainText("尚未保存到历史");
+      await expect(result).toContainText("保存本次摘要");
       await expect(page.getByTestId("session-voiced")).not.toHaveText("0.0 秒");
       if (scenario === "target-hit")
         await expect(page.getByTestId("session-within10")).toHaveText("100%");
@@ -688,6 +688,26 @@ for (const scenario of ["free", "target-hit", "target-octave"] as const) {
             ).__pitchyWorkerLifecycle.terminates,
         ),
       ).toBe(1);
+      await page.getByRole("button", { name: "保存本次摘要", exact: true }).click();
+      await expect(
+        page.getByText("摘要已保存在本设备，刷新后仍保留。", { exact: true }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "删除本次已保存摘要" }).click();
+      await expect(
+        page.getByText("本次已保存摘要已删除；当前页面预览仍保留。", { exact: true }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "保存本次摘要", exact: true }).click();
+      await expect(
+        page.getByText("摘要已保存在本设备，刷新后仍保留。", { exact: true }),
+      ).toBeVisible();
+      await page.reload();
+      await expect(page.getByRole("spinbutton", { name: "A4 基准频率（Hz）" })).toHaveValue(
+        scenario === "free" ? "415" : "440",
+      );
+      await expect(page.getByText("已保存 1 次练习摘要", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "清空练习数据", exact: true }).click();
+      await page.getByRole("button", { name: "确认清空", exact: true }).click();
+      await expect(page.getByText("已保存 0 次练习摘要", { exact: true })).toBeVisible();
     } finally {
       await page.evaluate(async () => {
         const closeSyntheticInput = (

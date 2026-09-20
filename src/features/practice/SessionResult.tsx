@@ -2,6 +2,7 @@ import type { Locale, Messages } from "../../app/i18n";
 import { midiToNoteName } from "../../domain/notes";
 import { nearestMidi } from "../../domain/pitch";
 import type { CompletedPracticeSession } from "../../domain/session";
+import { SessionStorage } from "./SessionStorage";
 
 interface SessionResultProps {
   readonly session: CompletedPracticeSession;
@@ -93,6 +94,7 @@ export function SessionResult({ session, locale, messages }: SessionResultProps)
         </dl>
       )}
       <p>{messages.sessionMetricHelp}</p>
+      <SessionStorage key={summary.id} session={session} messages={messages} />
     </section>
   );
 }

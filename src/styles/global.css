@@ -94,6 +94,22 @@ a:focus-visible {
   gap: 16px;
 }
 
+.session-storage button,
+.local-data button {
+  margin: 4px 8px 4px 0;
+  padding: 10px 14px;
+  min-height: 44px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.local-data {
+  margin-top: 24px;
+}
+
 .target-metrics dd {
   margin: 4px 0;
   color: var(--color-text);

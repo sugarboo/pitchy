@@ -19,6 +19,8 @@ import {
   PITCH_WORKER_PROTOCOL_VERSION,
 } from "../../src/audio/workers/worker-protocol";
 import { PitchTraceBuffer } from "../../src/components/pitch-trace";
+import { database } from "../../src/db/database";
+import { localRepository } from "../../src/db/repositories";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -177,7 +179,9 @@ class FakeAudioContext extends EventTarget implements ManagedAudioContext {
 
 let root: Root | null = null;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await database.settings.clear();
+  await database.sessions.clear();
   window.localStorage.clear();
   window.localStorage.setItem("pitchy.ui.locale", "zh-CN");
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -232,9 +236,24 @@ async function renderApp(props: AppProps = {}, options: RenderAppOptions = {}) {
   await act(async () => {
     root?.render(options.strictMode ? <StrictMode>{app}</StrictMode> : app);
   });
+  await act(async () => {
+    await database.settings.get("preferences");
+  });
+  await act(async () => {
+    await database.sessions.toArray();
+  });
+  expect(document.querySelector(".primary-button")).not.toBeNull();
 }
 
 describe("App", () => {
+  it("keeps practice available when settings storage fails", async () => {
+    vi.spyOn(localRepository, "loadPreferences").mockRejectedValueOnce(
+      new Error("Storage blocked"),
+    );
+    await renderApp({ supportOverride: createSupportedSnapshot() });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("本地存储暂不可用");
+    expect(document.querySelector<HTMLButtonElement>(".primary-button")?.disabled).toBe(false);
+  });
   it("renders the privacy-first welcome screen in a real browser", async () => {
     await renderApp();
 
@@ -364,7 +383,7 @@ describe("App", () => {
     await act(async () => document.querySelector<HTMLButtonElement>(".language-toggle")?.click());
     await act(async () => document.querySelector<HTMLButtonElement>(".theme-toggle")?.click());
     expect(document.querySelector(".session-result")?.textContent).toContain("数据不足");
-    expect(document.querySelector(".session-result")?.textContent).toContain("尚未保存到历史");
+    expect(document.querySelector(".session-result")?.textContent).toContain("保存本次摘要");
     expect(createAudioContext).toHaveBeenCalledOnce();
   });
 

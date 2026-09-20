@@ -35,6 +35,19 @@ describe("free practice feedback", () => {
       "within30Label",
       "insufficientData",
       "sessionMetricHelp",
+      "localStorageFailed",
+      "invalidPreferences",
+      "saveSession",
+      "deleteSavedSession",
+      "sessionSaved",
+      "sessionDeleted",
+      "sessionSaveHint",
+      "localDataLabel",
+      "refreshLocalData",
+      "clearSessions",
+      "clearSessionsConfirm",
+      "confirmClearSessions",
+      "cancelAction",
     ] as const) {
       expect(messages[key].trim().length).toBeGreaterThan(0);
       expect(messages[key]).not.toBe(key);

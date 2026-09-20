@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-09-19`
+- Last updated: `2026-09-20`
 - Current milestone: `M4`
-- Current backlog item: `VT-021`
+- Current backlog item: `VT-022`
 - Current state: `pending`
 - Recommended route: `session-data`
 
 ## Current handoff
 
-VT-020 is complete. `src/domain/session.ts` defines schema-v1 summary/result contracts; `session-aggregator.ts` collects every accepted frame into bounded duration statistics, stable runs/range, target ±10/20/30 ratios, a 1001-bin duration-weighted stability histogram, and at most 300 preview points. `LivePitchStore.syncAudioStatus()` begins only on the first running state, excludes paused results, and finalizes synchronously on stopping/error before live reset. `getCompletedSession()` retains the immutable result until the next successful session. `SessionResult.tsx` provides a localized in-memory preview with explicit insufficient-data and unsaved/interrupted messages. Production E2E validates preserved summaries for free, target-hit and target-octave scenarios. Next is VT-021: add Dexie/Zod repositories and migration, persist settings behind the existing preferences boundary (migrating namespaced localStorage), and validate stored schema-v1 summaries/preview data. Full summary/history UI belongs to VT-022. Input device label is currently null because the engine does not expose it. Real-device latency/leak QA remains outstanding.
+VT-021 is complete. `src/db/database.ts` defines Dexie database `pitchy-local` version 1 with settings/sessions tables. `schema.ts` uses strict Zod validation for schema-v1 preferences, summaries, bounded traces and record identity; repositories validate writes/reads, skip corrupt session records with a count, upsert by session ID, and expose single-delete/clear. PreferenceProvider hydrates before mounting audio UI, transactionally migrates valid legacy defaults once, prioritizes existing DB preferences, persists theme/locale/A4, and falls back with a notice on failure or a 3-second load timeout. Legacy theme/locale keys remain compatibility caches. `SessionStorage.tsx` adds explicit save/delete; `LocalDataControls.tsx` shows saved/invalid counts and confirmed clear. Production E2E covers save/delete/resave/reload/clear and A4 restoration. Next is VT-022: build the full saved-summary/history views using `localRepository.listSessions()`, expose stored trace overview and per-record navigation/deletion, and keep empty/corrupt/storage-failure states honest. Current saved data UI shows counts only after reload; full history browsing is not implemented. Input device label remains null; offline and real-device QA remain later tasks.
 
 First command: `pnpm skills:route`
 
@@ -47,7 +47,7 @@ First command: `pnpm skills:route`
 | VT-018 | complete | Explicit localized free mode, validated session-locked A4 tuning, coherent readout/range/Canvas projection, deterministic boundary tests, and production E2E pass. |
 | VT-019 | complete | Locked target/mode selection, full target cents, observed hit/stable durations, bilingual UI, pause/gap tests, and production hit/octave E2E pass. |
 | VT-020 | complete | Bounded session aggregation, stable runs/range, weighted stability median, target ratios, lifecycle finalization, localized in-memory result, and production summary E2E pass. |
-| VT-021 | pending | Add local database and migrations. |
+| VT-021 | complete | Dexie/Zod schema-v1 repositories, atomic legacy settings migration, persisted A4/theme/locale, explicit save/delete/clear, corrupt-data handling, and native IndexedDB/production E2E pass. |
 | VT-022 | pending | Add summary and history. |
 | VT-023 | pending | Validate full offline workflow. |
 | VT-024 | pending | Validate non-disruptive update prompt. |
@@ -58,23 +58,23 @@ First command: `pnpm skills:route`
 
 | Check | Last result | Notes |
 | --- | --- | --- |
-| `pnpm install --frozen-lockfile` | pass | Lockfile was current; 469 entries passed pnpm supply-chain policy checks. |
-| `pnpm check` | pass | Biome checked 88 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
+| `pnpm install --frozen-lockfile` | pass | Added dexie 4.4.6 and zod 4.6.5; frozen install reports up to date. Host launcher used pnpm 11.19.0; packageManager remains pinned to 11.9.0. |
+| `pnpm check` | pass | Biome checked 95 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 24 unit files, 542 tests; adds empty summaries, pause/gap/replay boundaries, stable runs, target ratio denominators, tuning capture, weighted median, 30,000-frame bounded preview, finalization/restart/error handling. |
-| `pnpm test:browser` | pass | 2 browser files, 18 Chromium tests; adds retained empty-result rendering and theme/locale changes after stop, with prior audio/control/Canvas regressions. |
-| `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 294.13 KiB precached. |
-| `pnpm test:e2e` | pass | 8 Chromium tests; production free/target streams retain voiced summaries after stop, matched target shows 100% within10, octave-mismatched target shows 0%, free target ratios are absent. |
-| `pnpm check:size` | pass | Compressed app shell is 97.0 KiB of the 500 KiB budget. |
-| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-020; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
+| `pnpm test` | pass | 25 unit files, 554 tests; adds schema corruption/version/range/consistency/PCM/trace bounds and bilingual storage copy coverage. |
+| `pnpm test:browser` | pass | 3 browser files, 23 Chromium tests; native IndexedDB migration/reopen/upsert/skip/delete/clear, invalid write rejection, storage failure fallback, and all prior audio/Canvas regressions. |
+| `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 479.18 KiB precached. |
+| `pnpm test:e2e` | pass | 8 Chromium tests; free/target production streams save/delete/resave summaries, reload retains one saved record and A4 tuning, confirmed clear removes records; theme/locale and privacy regressions pass. |
+| `pnpm check:size` | pass | Compressed app shell is 152.5 KiB of the 500 KiB budget (+55.5 KiB including Dexie/Zod and storage UI). |
+| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-021; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
 
 ## Durable decisions
 
 - Store repo-scoped skills under `.agents/skills` so current Codex clients can discover them while Git synchronizes them across devices.
 - Keep `pitchy-router` procedural and this skill stateful; do not duplicate the full `AGENTS.md` plan.
 - Use a single mutable handoff instead of an append-only session log; Git history remains the audit trail.
-- Defer Zustand, Dexie, and Zod until their owning milestones to avoid unused M0 dependencies.
-- Use typed local `zh-CN` and `en` dictionaries with explicit UI controls. Persist the M0 theme/locale preference in namespaced localStorage, then migrate it behind the same preference boundary when Dexie arrives in VT-021.
+- Dexie and Zod were introduced in VT-021 for local storage and runtime schemas. Zustand remains deferred until a concrete business-state need arises.
+- Use typed local `zh-CN` and `en` dictionaries with explicit UI controls. IndexedDB preferences are canonical after VT-021; namespaced localStorage keys seed migration only when no DB preference row exists and remain compatibility caches. Hydrate before mounting audio consumers, preventing a late preference load from changing a running session.
 - Keep `workbox-window` as an explicit runtime dependency for the React update prompt; it communicates only with the same-origin Service Worker.
 - Start the Vite preview server through Playwright global setup so E2E teardown closes in-process and exits reliably on Windows.
 - Keep microphone permission and hardware failures as stable `AppErrorCode` values; translate codes at render time so locale changes never require repeating a browser request.
@@ -102,17 +102,18 @@ First command: `pnpm skills:route`
 - Schedule Canvas work directly from trace-buffer notifications, coalescing bursts into one `requestAnimationFrame` without React state. Resolve light/dark colors at draw time, resize backing pixels from actual CSS bounds and DPR, and cancel queued work whenever the document is hidden or the component unmounts.
 - Own adaptive gate, octave guard, and median-filter state inside one Worker runtime session. Convert accepted raw frequency to continuous MIDI before guarding; freeze downstream smoothing while a large jump is pending, emit a null trace observation, and reset smoothing before inserting a confirmed jump or new onset.
 - Feed every validated Worker result into `PitchTraceBuffer`, but expose React through `LivePitchStore` at a trailing maximum of 25 Hz. Clear pending timers, the published snapshot, and trace history together whenever a fresh session starts or stops; pause/resume retains the same timeline.
-- Keep Worker/trace MIDI in canonical A4=440 coordinates. Free-mode display applies `12 * log2(440 / tuningA4Hz)` to note/cents, stable range, and Canvas; measured Hz and translation-invariant stability metrics stay unchanged. Freeze tuning during each session, including pause, to keep future aggregation coherent. Retain the page setting after stop; durable tuning storage is deferred to VT-021.
+- Keep Worker/trace MIDI in canonical A4=440 coordinates. Free-mode display applies `12 * log2(440 / tuningA4Hz)` to note/cents, stable range, and Canvas; measured Hz and translation-invariant stability metrics stay unchanged. Freeze tuning during each session, including pause; VT-021 persists it with interface preferences.
 - Fix mode and target alongside tuning for each session. Offer D2–C6 because every target remains inside 65–1200 Hz across all supported tunings. Target deviation uses the tuned continuous MIDI without octave folding; ±20 cents is a labeled product tolerance. Count only adjacent observed intervals whose endpoints both hit, requiring both endpoints stable for stable-hit time. First frames, gaps, unvoiced/pending observations, and pause boundaries add no inferred time. Aggregate before UI throttling, clear on new session/stop, and keep free-mode target progress null.
 - Start a session only after audio reaches running with an actual sample rate. Total duration uses a monotonic start/end clock and includes pauses, excluding permission/startup time. Voiced/stable/target durations use adjacent valid pitch intervals, so pending or missing pitch contributes no estimated time. Target ratios and stable voiced ratio use observed voiced duration as denominator; empty denominators are null, and free-mode target ratios are always null.
-- Finalize before clearing live data, retain a frozen completed result across stop/reset and locale/theme changes, and mark audio errors as interrupted. New successful sessions replace the prior in-memory result; failed permission requests do not create summaries. Use fixed 0.1-point stability bins for a duration-weighted lower median and pairwise compact at most 300 trace points while preserving gaps; the preview is not a uniformly sampled analysis series. Never retain PCM. Database persistence is VT-021 and full history UI is VT-022.
+- Finalize before clearing live data, retain a frozen completed result across stop/reset and locale/theme changes, and mark audio errors as interrupted. New successful sessions replace the prior in-memory result; failed permission requests do not create summaries. Use fixed 0.1-point stability bins for a duration-weighted lower median and pairwise compact at most 300 trace points while preserving gaps; the preview is not a uniformly sampled analysis series. Never retain PCM. Saving is explicit; full history UI is VT-022.
+- Use strict schemas on both sides of every persistent read/write, reject extra fields (including PCM), preserve null evidence, and skip unknown/corrupt session versions without crashing. Migration from pre-database UI preferences uses a read/write transaction and only inserts if absent. There is no prior IndexedDB schema to upgrade yet; future version changes must add Dexie upgrade transactions and tests. Clear sessions only after explicit UI confirmation and keep preferences intact.
 - Derive stability from an immutable approximately one-second guarded/smoothed MIDI window using median absolute deviation in cents and a Theil-Sen cents-per-second trend. Require eight valid frames and a 0.6 valid ratio, then score with the lower of separately monotonic spread and trend components; all initial thresholds remain `CALIBRATION_REQUIRED` for VT-025.
 - Own the stability window and sustained-note reducer inside the Worker session. Reset the window on unvoiced boundaries and confirmed guarded jumps, preserve the session-wide stable MIDI range, retain raw voiced duration across temporarily withheld octave candidates, and use separate 75/60 enter/exit scores to avoid stable-state flicker.
 
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, Dedicated Worker, full pitch pipeline, and main readout paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- DSP, free/target practice, and in-memory session summaries are implemented. Storage, full summary/history UI, offline reopen, and real-device lifecycle QA remain outstanding. Practice settings and results reset on page reload. Input device label is null until the audio metadata boundary exposes it; no label is fabricated. The 30,000-frame test proves bounded data structures, not a real-time 20-minute leak run.
+- DSP, free/target practice, summaries and local persistence are implemented. Full summary/history UI, offline reopen, and real-device lifecycle QA remain outstanding. Unsaved previews and mode/target selection reset on reload; theme/locale/A4 and explicitly saved summaries persist. Saved-count refresh is explicit until VT-022 adds reactive history. Storage may be unavailable/evicted by the browser; failures are reported with in-memory practice retained. Input device label is null until exposed by audio metadata. The 30,000-frame test is not a real-time leak run.
 - A first 4096-sample window takes about 85 ms at 48 kHz or 93 ms at 44.1 kHz before compute. The 40 ms UI publication interval is below the normal 42.7/46.4 ms hop interval, and full-DSP compute averaged about 1.5 ms in automated benchmarks, but input-to-paint latency has not yet been instrumented on the baseline devices and persistent pitch changes can still incur median/guard confirmation lag.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.

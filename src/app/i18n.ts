@@ -72,6 +72,22 @@ export interface Messages {
   within30Label: string;
   insufficientData: string;
   sessionMetricHelp: string;
+  localStorageFailed: string;
+  loadingPreferences: string;
+  invalidPreferences: string;
+  saveSession: string;
+  deleteSavedSession: string;
+  sessionSaved: string;
+  sessionDeleted: string;
+  sessionSaveHint: string;
+  localDataLabel: string;
+  savedSessionCount: (count: number | null) => string;
+  invalidSessionCount: (count: number) => string;
+  refreshLocalData: string;
+  clearSessions: string;
+  clearSessionsConfirm: string;
+  confirmClearSessions: string;
+  cancelAction: string;
   freePracticeDescription: string;
   tuningA4Label: string;
   tuningHelp: string;
@@ -169,7 +185,25 @@ const zhCn: Messages = {
   targetHitDurationLabel: "目标命中时长（±20 音分）",
   targetStableDurationLabel: "稳定命中时长",
   sessionResultTitle: "本次练习结果",
-  sessionMemoryOnly: "结果仅保留在当前页面；刷新或开始新的练习后清除，尚未保存到历史。",
+  localStorageFailed:
+    "本地存储暂不可用，当前练习仍可继续。请检查浏览器存储权限或可用空间，再重试保存或刷新。",
+  invalidPreferences: "旧设置无法读取，已使用可用默认值；重新选择偏好可修复设置。",
+  saveSession: "保存本次摘要",
+  deleteSavedSession: "删除本次已保存摘要",
+  sessionSaved: "摘要已保存在本设备，刷新后仍保留。",
+  sessionDeleted: "本次已保存摘要已删除；当前页面预览仍保留。",
+  sessionSaveHint: "点击保存后仅将摘要与精简轨迹写入本设备，不保存录音。",
+  localDataLabel: "本地练习数据",
+  loadingPreferences: "正在读取本地设置…",
+  savedSessionCount: (count) =>
+    count === null ? "正在读取本地记录" : `已保存 ${count} 次练习摘要`,
+  invalidSessionCount: (count) => `已跳过 ${count} 条无法读取的记录；可清空练习数据以移除。`,
+  refreshLocalData: "刷新记录数量",
+  clearSessions: "清空练习数据",
+  clearSessionsConfirm: "确定删除本设备全部练习摘要和精简轨迹？此操作无法撤销，界面偏好不受影响。",
+  confirmClearSessions: "确认清空",
+  cancelAction: "取消",
+  sessionMemoryOnly: "结果预览仅保留在当前页面；如需刷新后保留，请点击保存本次摘要。",
   sessionInterrupted: "练习意外中断，已保留中断前的结果，仅在当前页面可用。",
   sessionDurationLabel: "练习总时长（含暂停）",
   voicedDurationLabel: "有效发声时长",
@@ -185,8 +219,7 @@ const zhCn: Messages = {
   freePracticeDescription:
     "自由发声或滑音。音中心偏差表示距离最近十二平均律半音中心的偏差，不代表唱准率；正值偏高，负值偏低。",
   tuningA4Label: "A4 基准频率（Hz）",
-  tuningHelp:
-    "范围 415–466 Hz，默认 440 Hz。输入超出范围时保留上次有效值。设置在本页面保留，刷新后恢复默认。",
+  tuningHelp: "范围 415–466 Hz，默认 440 Hz。输入超出范围时保留上次有效值。设置仅保存在本设备。",
   tuningLocked: "本次练习使用固定基准；停止后可调整。",
   pitchStates: {
     waiting: "等待开始",
@@ -360,8 +393,30 @@ const en: Messages = {
   targetHitDurationLabel: "Target hit duration (±20 cents)",
   targetStableDurationLabel: "Stable hit duration",
   sessionResultTitle: "Practice result",
+  localStorageFailed:
+    "Local storage is unavailable. Practice can continue; check browser storage permissions or free space, then retry saving or reload.",
+  invalidPreferences:
+    "Stored settings could not be read. Available defaults are in use; choose your preferences again to repair them.",
+  saveSession: "Save this summary",
+  deleteSavedSession: "Delete this saved summary",
+  sessionSaved: "Summary saved on this device and retained after reload.",
+  sessionDeleted: "Saved summary deleted; the current page preview remains.",
+  sessionSaveHint:
+    "Saving stores only the summary and compact trace on this device, never a recording.",
+  localDataLabel: "Local practice data",
+  loadingPreferences: "Loading local settings…",
+  savedSessionCount: (count) =>
+    count === null ? "Reading local records" : `${count} practice summaries saved`,
+  invalidSessionCount: (count) =>
+    `${count} unreadable records were skipped. Clear practice data to remove them.`,
+  refreshLocalData: "Refresh record count",
+  clearSessions: "Clear practice data",
+  clearSessionsConfirm:
+    "Delete all practice summaries and compact traces on this device? This cannot be undone. Interface preferences are kept.",
+  confirmClearSessions: "Confirm deletion",
+  cancelAction: "Cancel",
   sessionMemoryOnly:
-    "This result stays on this page until reload or the next practice. It has not been saved to history.",
+    "This preview stays on the current page. Save the summary to retain it after reload.",
   sessionInterrupted:
     "Practice was interrupted. Results up to the interruption remain available on this page only.",
   sessionDurationLabel: "Session duration (including pauses)",
@@ -379,7 +434,7 @@ const en: Messages = {
     "Sing freely or glide between notes. Note-center deviation measures distance from the nearest 12-TET semitone center, not singing accuracy; positive is sharp, negative is flat.",
   tuningA4Label: "A4 reference frequency (Hz)",
   tuningHelp:
-    "Range 415–466 Hz; default 440 Hz. Out-of-range input keeps the last valid value. This page retains the setting until reload.",
+    "Range 415–466 Hz; default 440 Hz. Out-of-range input keeps the last valid value. Settings are saved on this device only.",
   tuningLocked: "The reference stays fixed during this practice; stop to adjust it.",
   pitchStates: {
     waiting: "Waiting to start",

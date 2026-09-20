@@ -1,4 +1,6 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { localRepository } from "../db/repositories";
+import { DEFAULT_TUNING_A4_HZ } from "../domain/tuning";
 import { getMessages, type Locale } from "./i18n";
 
 export type Theme = "dark" | "light";
@@ -13,6 +15,9 @@ interface PreferenceContextValue {
   setLocale: (locale: Locale) => void;
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  tuningA4Hz: number;
+  setTuningA4Hz: (value: number) => void;
+  storageNotice: "failed" | "invalid" | null;
 }
 
 const THEME_STORAGE_KEY = "pitchy.ui.theme";
@@ -74,6 +79,10 @@ export function resolveInitialLocale(
 }
 
 export function PreferenceProvider({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [storageNotice, setStorageNotice] = useState<"failed" | "invalid" | null>(null);
+  const [tuningA4Hz, setTuningA4Hz] = useState(DEFAULT_TUNING_A4_HZ);
   const [theme, setTheme] = useState<Theme>(() =>
     resolveInitialTheme(
       getBrowserStorage(),
@@ -84,6 +93,50 @@ export function PreferenceProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() =>
     resolveInitialLocale(getBrowserStorage(), window.navigator.languages),
   );
+  const [initialPreferences] = useState(() => ({ theme, locale, tuningA4Hz }));
+
+  useEffect(() => {
+    let active = true;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("Settings load timed out")), 3000);
+    });
+    void Promise.race([localRepository.loadPreferences(initialPreferences), timeout])
+      .then(({ preferences, invalid }) => {
+        if (!active) return;
+        setTheme(preferences.theme);
+        setLocale(preferences.locale);
+        setTuningA4Hz(preferences.tuningA4Hz);
+        setStorageNotice(invalid ? "invalid" : null);
+      })
+      .catch(() => {
+        if (active) setStorageNotice("failed");
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        if (active) setReady(true);
+      });
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [initialPreferences]);
+
+  useEffect(() => {
+    if (!ready || revision === 0) return;
+    let active = true;
+    void localRepository
+      .savePreferences({ theme, locale, tuningA4Hz })
+      .then(() => {
+        if (active) setStorageNotice(null);
+      })
+      .catch(() => {
+        if (active) setStorageNotice("failed");
+      });
+    return () => {
+      active = false;
+    };
+  }, [ready, revision, theme, locale, tuningA4Hz]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -133,8 +186,27 @@ export function PreferenceProvider({ children }: { children: ReactNode }) {
   }, [locale]);
 
   return (
-    <PreferenceContext.Provider value={{ locale, setLocale, theme, setTheme }}>
-      {children}
+    <PreferenceContext.Provider
+      value={{
+        locale,
+        theme,
+        tuningA4Hz,
+        storageNotice,
+        setLocale: (value) => {
+          setLocale(value);
+          setRevision((v) => v + 1);
+        },
+        setTheme: (value) => {
+          setTheme(value);
+          setRevision((v) => v + 1);
+        },
+        setTuningA4Hz: (value) => {
+          setTuningA4Hz(value);
+          setRevision((v) => v + 1);
+        },
+      }}
+    >
+      {ready ? children : <p role="status">{getMessages(locale).loadingPreferences}</p>}
     </PreferenceContext.Provider>
   );
 }
