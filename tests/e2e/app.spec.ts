@@ -705,6 +705,17 @@ for (const scenario of ["free", "target-hit", "target-octave"] as const) {
         scenario === "free" ? "415" : "440",
       );
       await expect(page.getByText("已保存 1 次练习摘要", { exact: true })).toBeVisible();
+      await page.getByRole("list", { name: "练习历史列表" }).locator("li button").first().click();
+      const history = page.locator(".history-detail");
+      await expect(history.getByRole("heading", { name: "已保存的练习摘要" })).toBeVisible();
+      await expect(history.getByRole("img", { name: "练习音高概览" })).toBeVisible();
+      if (scenario !== "free") {
+        await expect(history.getByTestId("session-within10")).toHaveText(
+          scenario === "target-hit" ? "100%" : "0%",
+        );
+      }
+      await page.getByRole("button", { name: "关闭历史详情" }).click();
+      await expect(history).toHaveCount(0);
       await page.getByRole("button", { name: "清空练习数据", exact: true }).click();
       await page.getByRole("button", { name: "确认清空", exact: true }).click();
       await expect(page.getByText("已保存 0 次练习摘要", { exact: true })).toBeVisible();

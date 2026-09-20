@@ -11,8 +11,8 @@ import { PitchCanvas } from "../components/PitchCanvas";
 import { PitchReadout } from "../components/PitchReadout";
 import { PitchTraceBuffer } from "../components/pitch-trace";
 import { DEFAULT_TARGET_MIDI, type PracticeMode } from "../domain/target-practice";
+import { PracticeHistory } from "../features/history/PracticeHistory";
 import { tuningMidiOffset } from "../features/practice/free-practice";
-import { LocalDataControls } from "../features/practice/LocalDataControls";
 import { LivePitchStore } from "../features/practice/live-pitch";
 import { PracticeControls } from "../features/practice/PracticeControls";
 import { SessionResult } from "../features/practice/SessionResult";
@@ -335,7 +335,12 @@ export function App({
       </section>
 
       {completedSession !== null && (
-        <SessionResult session={completedSession} locale={locale} messages={messages} />
+        <SessionResult
+          session={completedSession}
+          locale={locale}
+          messages={messages}
+          theme={theme}
+        />
       )}
 
       <section className="status-grid" aria-label={messages.foundationStatusLabel}>
@@ -394,7 +399,7 @@ export function App({
         </article>
       </section>
 
-      <LocalDataControls messages={messages} />
+      <PracticeHistory messages={messages} locale={locale} theme={theme} />
       <footer className="footer">
         <p>{messages.medicalDisclaimer}</p>
         <p>{messages.privacyFooter}</p>

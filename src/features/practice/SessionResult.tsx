@@ -1,17 +1,29 @@
+import { useId } from "react";
 import type { Locale, Messages } from "../../app/i18n";
+import type { Theme } from "../../app/preferences";
 import { midiToNoteName } from "../../domain/notes";
 import { nearestMidi } from "../../domain/pitch";
 import type { CompletedPracticeSession } from "../../domain/session";
+import { SessionTrace } from "../summary/SessionTrace";
 import { SessionStorage } from "./SessionStorage";
 
 interface SessionResultProps {
   readonly session: CompletedPracticeSession;
   readonly locale: Locale;
   readonly messages: Messages;
+  readonly theme: Theme;
+  readonly saved?: boolean;
 }
 
-/** In-memory result preview; history and persistence are owned by VT-021/VT-022. */
-export function SessionResult({ session, locale, messages }: SessionResultProps) {
+/** Shared presentation of frozen current or saved results; never reads live tuning. */
+export function SessionResult({
+  session,
+  locale,
+  messages,
+  theme,
+  saved = false,
+}: SessionResultProps) {
+  const titleId = useId();
   const summary = session.summary;
   const seconds = (value: number): string =>
     `${(value / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${messages.secondsUnit}`;
@@ -22,12 +34,21 @@ export function SessionResult({ session, locale, messages }: SessionResultProps)
   const note = (value: number | null): string =>
     value === null ? messages.insufficientData : midiToNoteName(nearestMidi(value));
   return (
-    <section className="status-card session-result" aria-labelledby="session-result-title">
-      <h2 id="session-result-title">{messages.sessionResultTitle}</h2>
+    <section className="status-card session-result" aria-labelledby={titleId}>
+      <h2 id={titleId}>{saved ? messages.savedResultTitle : messages.sessionResultTitle}</h2>
       <p>
-        {session.endReason === "interrupted"
-          ? messages.sessionInterrupted
-          : messages.sessionMemoryOnly}
+        {saved
+          ? messages.savedResultHelp
+          : session.endReason === "interrupted"
+            ? messages.sessionInterrupted
+            : messages.sessionMemoryOnly}
+      </p>
+      {saved && session.endReason === "interrupted" && <p>{messages.savedInterrupted}</p>}
+      <p>
+        <time dateTime={summary.startedAt}>
+          {new Date(summary.startedAt).toLocaleString(locale)}
+        </time>{" "}
+        – <time dateTime={summary.endedAt}>{new Date(summary.endedAt).toLocaleString(locale)}</time>
       </p>
       <p>
         {summary.mode === "free"
@@ -94,7 +115,11 @@ export function SessionResult({ session, locale, messages }: SessionResultProps)
         </dl>
       )}
       <p>{messages.sessionMetricHelp}</p>
-      <SessionStorage key={summary.id} session={session} messages={messages} />
+      <SessionTrace points={session.trace} theme={theme} messages={messages} />
+      {!saved && <SessionStorage key={summary.id} session={session} messages={messages} />}
+      <a className="return-practice" href="#welcome-title">
+        {messages.returnToPractice}
+      </a>
     </section>
   );
 }

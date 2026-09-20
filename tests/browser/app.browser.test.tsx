@@ -241,6 +241,7 @@ async function renderApp(props: AppProps = {}, options: RenderAppOptions = {}) {
   });
   await act(async () => {
     await database.sessions.toArray();
+    await new Promise((resolve) => setTimeout(resolve, 30));
   });
   expect(document.querySelector(".primary-button")).not.toBeNull();
 }

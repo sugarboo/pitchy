@@ -836,6 +836,44 @@ h1 {
   }
 }
 
+.history-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-list li > button:first-child {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12px;
+  text-align: start;
+}
+
+.history-list button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.history-detail,
+.session-trace {
+  margin-top: 24px;
+  min-width: 0;
+}
+
+.return-practice {
+  display: inline-block;
+  color: inherit;
+  padding: 12px 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

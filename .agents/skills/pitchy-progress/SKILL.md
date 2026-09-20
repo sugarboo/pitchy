@@ -12,14 +12,14 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 ## Current route
 
 - Last updated: `2026-09-20`
-- Current milestone: `M4`
-- Current backlog item: `VT-022`
+- Current milestone: `M5`
+- Current backlog item: `VT-023`
 - Current state: `pending`
-- Recommended route: `session-data`
+- Recommended route: `offline-pwa`
 
 ## Current handoff
 
-VT-021 is complete. `src/db/database.ts` defines Dexie database `pitchy-local` version 1 with settings/sessions tables. `schema.ts` uses strict Zod validation for schema-v1 preferences, summaries, bounded traces and record identity; repositories validate writes/reads, skip corrupt session records with a count, upsert by session ID, and expose single-delete/clear. PreferenceProvider hydrates before mounting audio UI, transactionally migrates valid legacy defaults once, prioritizes existing DB preferences, persists theme/locale/A4, and falls back with a notice on failure or a 3-second load timeout. Legacy theme/locale keys remain compatibility caches. `SessionStorage.tsx` adds explicit save/delete; `LocalDataControls.tsx` shows saved/invalid counts and confirmed clear. Production E2E covers save/delete/resave/reload/clear and A4 restoration. Next is VT-022: build the full saved-summary/history views using `localRepository.listSessions()`, expose stored trace overview and per-record navigation/deletion, and keep empty/corrupt/storage-failure states honest. Current saved data UI shows counts only after reload; full history browsing is not implemented. Input device label remains null; offline and real-device QA remain later tasks.
+VT-022 is complete. `src/features/history/PracticeHistory.tsx` replaces LocalDataControls with a Dexie liveQuery-backed newest-first history list, saved details, confirmed single deletion/clear, empty/error states and explicit retry. `SessionResult.tsx` shares frozen current/saved metric presentation with unique headings, dates and a return-to-practice anchor. `src/features/summary/SessionTrace.tsx` renders the complete bounded observation span without retuning saved MIDI; null gaps remain intact and empty evidence is labeled. Browser tests cover reactive writes, order, saved settings/null evidence, locale/theme rerender, deletion/clear and read failure recovery. Production E2E reopens saved free/target summaries after reload and checks trace visibility and target ratios. Next is VT-023: validate the complete offline workflow with installed Service Worker, offline reopen, production synthetic input through DSP, summary save/reload, preferences and request auditing. Do not infer offline acceptance from the existing online tests. Input device label remains null; real-device QA remains outstanding.
 
 First command: `pnpm skills:route`
 
@@ -48,7 +48,7 @@ First command: `pnpm skills:route`
 | VT-019 | complete | Locked target/mode selection, full target cents, observed hit/stable durations, bilingual UI, pause/gap tests, and production hit/octave E2E pass. |
 | VT-020 | complete | Bounded session aggregation, stable runs/range, weighted stability median, target ratios, lifecycle finalization, localized in-memory result, and production summary E2E pass. |
 | VT-021 | complete | Dexie/Zod schema-v1 repositories, atomic legacy settings migration, persisted A4/theme/locale, explicit save/delete/clear, corrupt-data handling, and native IndexedDB/production E2E pass. |
-| VT-022 | pending | Add summary and history. |
+| VT-022 | complete | Reactive saved-history list/details, confirmed single-delete/clear, full-session trace, empty/error recovery, bilingual UI and production reload regressions pass. |
 | VT-023 | pending | Validate full offline workflow. |
 | VT-024 | pending | Validate non-disruptive update prompt. |
 | VT-025 | pending | Complete browser and real-device QA. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Added dexie 4.4.6 and zod 4.6.5; frozen install reports up to date. Host launcher used pnpm 11.19.0; packageManager remains pinned to 11.9.0. |
-| `pnpm check` | pass | Biome checked 95 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
+| `pnpm check` | pass | Biome checked 98 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
-| `pnpm test` | pass | 25 unit files, 554 tests; adds schema corruption/version/range/consistency/PCM/trace bounds and bilingual storage copy coverage. |
-| `pnpm test:browser` | pass | 3 browser files, 23 Chromium tests; native IndexedDB migration/reopen/upsert/skip/delete/clear, invalid write rejection, storage failure fallback, and all prior audio/Canvas regressions. |
-| `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 479.18 KiB precached. |
-| `pnpm test:e2e` | pass | 8 Chromium tests; free/target production streams save/delete/resave summaries, reload retains one saved record and A4 tuning, confirmed clear removes records; theme/locale and privacy regressions pass. |
-| `pnpm check:size` | pass | Compressed app shell is 152.5 KiB of the 500 KiB budget (+55.5 KiB including Dexie/Zod and storage UI). |
-| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-021; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
+| `pnpm test` | pass | 26 unit files, 556 tests; adds full-span saved trace/tuning/gap and empty evidence checks, plus bilingual history copy coverage. |
+| `pnpm test:browser` | pass | 4 browser files, 26 Chromium tests; adds reactive ordered history, saved settings/null metrics, locale/theme rerender, external deletion, confirmed deletion/clear and read retry. |
+| `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 483.80 KiB precached. |
+| `pnpm test:e2e` | pass | 8 Chromium tests; free/target production streams save/delete/resave, reload opens saved details and trace, target ratios retained, confirmed clear removes records; prior theme/locale/privacy checks pass. |
+| `pnpm check:size` | pass | Compressed app shell is 153.8 KiB of the 500 KiB budget (+1.3 KiB from VT-021). |
+| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-022; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
 
 ## Durable decisions
 
@@ -113,7 +113,7 @@ First command: `pnpm skills:route`
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, Dedicated Worker, full pitch pipeline, and main readout paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- DSP, free/target practice, summaries and local persistence are implemented. Full summary/history UI, offline reopen, and real-device lifecycle QA remain outstanding. Unsaved previews and mode/target selection reset on reload; theme/locale/A4 and explicitly saved summaries persist. Saved-count refresh is explicit until VT-022 adds reactive history. Storage may be unavailable/evicted by the browser; failures are reported with in-memory practice retained. Input device label is null until exposed by audio metadata. The 30,000-frame test is not a real-time leak run.
+- DSP, free/target practice, summaries, reactive history and local persistence are implemented. Offline reopen and real-device lifecycle QA remain outstanding. Unsaved previews and mode/target selection reset on reload; theme/locale/A4 and explicitly saved summaries persist. Storage may be unavailable/evicted by the browser; failures are reported with in-memory practice retained. Input device label is null until exposed by audio metadata. The 30,000-frame test is not a real-time leak run.
 - A first 4096-sample window takes about 85 ms at 48 kHz or 93 ms at 44.1 kHz before compute. The 40 ms UI publication interval is below the normal 42.7/46.4 ms hop interval, and full-DSP compute averaged about 1.5 ms in automated benchmarks, but input-to-paint latency has not yet been instrumented on the baseline devices and persistent pitch changes can still incur median/guard confirmation lag.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.

@@ -60,6 +60,18 @@ export interface Messages {
   targetHitDurationLabel: string;
   targetStableDurationLabel: string;
   sessionResultTitle: string;
+  sessionTraceTitle: string;
+  sessionTraceHelp: string;
+  savedResultTitle: string;
+  savedResultHelp: string;
+  savedInterrupted: string;
+  returnToPractice: string;
+  historyEmpty: string;
+  historyListLabel: string;
+  deleteHistoryEntry: string;
+  deleteHistoryConfirm: string;
+  confirmDeleteEntry: string;
+  closeHistoryDetail: string;
   sessionMemoryOnly: string;
   sessionInterrupted: string;
   sessionDurationLabel: string;
@@ -185,6 +197,19 @@ const zhCn: Messages = {
   targetHitDurationLabel: "目标命中时长（±20 音分）",
   targetStableDurationLabel: "稳定命中时长",
   sessionResultTitle: "本次练习结果",
+  sessionTraceTitle: "练习音高概览",
+  sessionTraceHelp:
+    "精简轨迹仅供回顾，保留检测间断；横轴为音频检测时间，不代表包含暂停的均匀采样或录音。",
+  savedResultTitle: "已保存的练习摘要",
+  savedResultHelp: "使用本次练习保存的模式、目标音与 A4 基准，不受当前练习设置影响。",
+  savedInterrupted: "本次练习因音频中断提前结束。",
+  returnToPractice: "返回练习",
+  historyEmpty: "还没有保存的练习摘要。结束练习后可手动保存。",
+  historyListLabel: "练习历史列表",
+  deleteHistoryEntry: "删除此记录",
+  deleteHistoryConfirm: "确定删除此条摘要和精简轨迹？此操作无法撤销。",
+  confirmDeleteEntry: "确认删除此记录",
+  closeHistoryDetail: "关闭历史详情",
   localStorageFailed:
     "本地存储暂不可用，当前练习仍可继续。请检查浏览器存储权限或可用空间，再重试保存或刷新。",
   invalidPreferences: "旧设置无法读取，已使用可用默认值；重新选择偏好可修复设置。",
@@ -198,7 +223,7 @@ const zhCn: Messages = {
   savedSessionCount: (count) =>
     count === null ? "正在读取本地记录" : `已保存 ${count} 次练习摘要`,
   invalidSessionCount: (count) => `已跳过 ${count} 条无法读取的记录；可清空练习数据以移除。`,
-  refreshLocalData: "刷新记录数量",
+  refreshLocalData: "刷新历史记录",
   clearSessions: "清空练习数据",
   clearSessionsConfirm: "确定删除本设备全部练习摘要和精简轨迹？此操作无法撤销，界面偏好不受影响。",
   confirmClearSessions: "确认清空",
@@ -393,6 +418,20 @@ const en: Messages = {
   targetHitDurationLabel: "Target hit duration (±20 cents)",
   targetStableDurationLabel: "Stable hit duration",
   sessionResultTitle: "Practice result",
+  sessionTraceTitle: "Session pitch overview",
+  sessionTraceHelp:
+    "This compact review preserves detection gaps. The horizontal axis uses audio detection time, not uniformly sampled wall time including pauses or a recording.",
+  savedResultTitle: "Saved practice summary",
+  savedResultHelp:
+    "Uses this session's saved mode, target and A4 reference, independent of current practice settings.",
+  savedInterrupted: "This session ended early because audio was interrupted.",
+  returnToPractice: "Return to practice",
+  historyEmpty: "No saved summaries yet. You can save one after ending a practice session.",
+  historyListLabel: "Practice history list",
+  deleteHistoryEntry: "Delete this entry",
+  deleteHistoryConfirm: "Delete this summary and compact trace? This cannot be undone.",
+  confirmDeleteEntry: "Confirm entry deletion",
+  closeHistoryDetail: "Close history details",
   localStorageFailed:
     "Local storage is unavailable. Practice can continue; check browser storage permissions or free space, then retry saving or reload.",
   invalidPreferences:
@@ -409,7 +448,7 @@ const en: Messages = {
     count === null ? "Reading local records" : `${count} practice summaries saved`,
   invalidSessionCount: (count) =>
     `${count} unreadable records were skipped. Clear practice data to remove them.`,
-  refreshLocalData: "Refresh record count",
+  refreshLocalData: "Refresh history",
   clearSessions: "Clear practice data",
   clearSessionsConfirm:
     "Delete all practice summaries and compact traces on this device? This cannot be undone. Interface preferences are kept.",
