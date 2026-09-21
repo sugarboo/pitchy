@@ -11,15 +11,15 @@ Use this file as the compact, checked-in handoff state. Verify every claim again
 
 ## Current route
 
-- Last updated: `2026-09-20`
+- Last updated: `2026-09-21`
 - Current milestone: `M5`
-- Current backlog item: `VT-023`
+- Current backlog item: `VT-024`
 - Current state: `pending`
 - Recommended route: `offline-pwa`
 
 ## Current handoff
 
-VT-022 is complete. `src/features/history/PracticeHistory.tsx` replaces LocalDataControls with a Dexie liveQuery-backed newest-first history list, saved details, confirmed single deletion/clear, empty/error states and explicit retry. `SessionResult.tsx` shares frozen current/saved metric presentation with unique headings, dates and a return-to-practice anchor. `src/features/summary/SessionTrace.tsx` renders the complete bounded observation span without retuning saved MIDI; null gaps remain intact and empty evidence is labeled. Browser tests cover reactive writes, order, saved settings/null evidence, locale/theme rerender, deletion/clear and read failure recovery. Production E2E reopens saved free/target summaries after reload and checks trace visibility and target ratios. Next is VT-023: validate the complete offline workflow with installed Service Worker, offline reopen, production synthetic input through DSP, summary save/reload, preferences and request auditing. Do not infer offline acceptance from the existing online tests. Input device label remains null; real-device QA remains outstanding.
+VT-023 is complete. `tests/e2e/offline.spec.ts` verifies free/target workflows after precaching, closing the warm page and shutting down an isolated production preview server. A new page runs offline with HTTP cache disabled; native Worklet/Worker/YIN process a synthetic 440 Hz microphone source, pause/resume/stop releases tracks, and saved summaries survive offline reload and can be deleted. Theme/locale/A4 preferences survive online-to-offline and offline reload boundaries. Cache contents are constrained to static artifacts and unchanged by practice; observed requests are same-origin GET without bodies. Chromium does not expose Worklet response events in this harness, so Worklet acceptance uses successful native DSP after actual server shutdown, not an assumed response flag. Existing production cache configuration needed no changes. README records usage and evidence limits. Next is VT-024: inspect `src/app/PwaUpdatePrompt.tsx` and add explicit update acceptance with a real waiting worker; prevent refresh during running/suspended or other unfinished sessions, preserve current results, and test postpone/confirm/error paths. Current prompt exposes updateAndReload without practice-state gating, so do not claim update safety yet. Real microphone, installed mobile PWA and cross-browser QA remain outstanding.
 
 First command: `pnpm skills:route`
 
@@ -49,7 +49,7 @@ First command: `pnpm skills:route`
 | VT-020 | complete | Bounded session aggregation, stable runs/range, weighted stability median, target ratios, lifecycle finalization, localized in-memory result, and production summary E2E pass. |
 | VT-021 | complete | Dexie/Zod schema-v1 repositories, atomic legacy settings migration, persisted A4/theme/locale, explicit save/delete/clear, corrupt-data handling, and native IndexedDB/production E2E pass. |
 | VT-022 | complete | Reactive saved-history list/details, confirmed single-delete/clear, full-session trace, empty/error recovery, bilingual UI and production reload regressions pass. |
-| VT-023 | pending | Validate full offline workflow. |
+| VT-023 | complete | Cold-page offline free/target DSP, pause/resume/stop, persisted history/preferences, deletion and static-only cache/request checks pass with the preview server shut down. |
 | VT-024 | pending | Validate non-disruptive update prompt. |
 | VT-025 | pending | Complete browser and real-device QA. |
 | VT-026 | pending | Complete performance and privacy audit. |
@@ -59,14 +59,14 @@ First command: `pnpm skills:route`
 | Check | Last result | Notes |
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | pass | Added dexie 4.4.6 and zod 4.6.5; frozen install reports up to date. Host launcher used pnpm 11.19.0; packageManager remains pinned to 11.9.0. |
-| `pnpm check` | pass | Biome checked 98 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
+| `pnpm check` | pass | Biome checked 99 files under Node 24; four existing CRLF-only files were temporarily normalized and restored afterward. |
 | `pnpm typecheck` | pass | TypeScript project references completed with no errors. |
 | `pnpm test` | pass | 26 unit files, 556 tests; adds full-span saved trace/tuning/gap and empty evidence checks, plus bilingual history copy coverage. |
 | `pnpm test:browser` | pass | 4 browser files, 26 Chromium tests; adds reactive ordered history, saved settings/null metrics, locale/theme rerender, external deletion, confirmed deletion/clear and read retry. |
 | `pnpm build` | pass | Separate 21.64 kB Worker and 1.53 kB Worklet; 10 entries / 483.80 KiB precached. |
-| `pnpm test:e2e` | pass | 8 Chromium tests; free/target production streams save/delete/resave, reload opens saved details and trace, target ratios retained, confirmed clear removes records; prior theme/locale/privacy checks pass. |
-| `pnpm check:size` | pass | Compressed app shell is 153.8 KiB of the 500 KiB budget (+1.3 KiB from VT-021). |
-| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-022; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
+| `pnpm test:e2e` | pass | 10 Chromium tests; adds two cold-page offline free/target workflows after actual server shutdown, native audio/DSP, saved history/preferences and request/cache audits; all 8 existing tests pass. |
+| `pnpm check:size` | pass | Compressed app shell is 153.8 KiB of the 500 KiB budget; VT-023 adds tests/docs only, no runtime growth. |
+| `pnpm benchmark:dsp --run` | prior VT-017 pass | DSP unchanged in VT-018–VT-023; not rerun. Prior full pipeline averaged 1.48 ms Node / 1.61 ms Chromium; stability sequence about 0.036/0.034 ms per frame. |
 
 ## Durable decisions
 
@@ -76,6 +76,7 @@ First command: `pnpm skills:route`
 - Dexie and Zod were introduced in VT-021 for local storage and runtime schemas. Zustand remains deferred until a concrete business-state need arises.
 - Use typed local `zh-CN` and `en` dictionaries with explicit UI controls. IndexedDB preferences are canonical after VT-021; namespaced localStorage keys seed migration only when no DB preference row exists and remain compatibility caches. Hydrate before mounting audio consumers, preventing a late preference load from changing a running session.
 - Keep `workbox-window` as an explicit runtime dependency for the React update prompt; it communicates only with the same-origin Service Worker.
+- Offline acceptance must wait for first-install readiness, close the original page, disable HTTP cache and stop an isolated preview server before starting audio on a new page. Keep runtime caching empty; summaries and PCM must never appear in CacheStorage. VT-023 confirms this in Chromium without altering the production precache policy.
 - Start the Vite preview server through Playwright global setup so E2E teardown closes in-process and exits reliably on Windows.
 - Keep microphone permission and hardware failures as stable `AppErrorCode` values; translate codes at render time so locale changes never require repeating a browser request.
 - Treat a post-failure `prompt` permission state as the best available signal for a dismissed prompt. When permission state is unavailable, map `NotAllowedError` conservatively to `permission-denied` because the platform exposes no distinct dismissal result.
@@ -113,12 +114,12 @@ First command: `pnpm skills:route`
 ## Known risks
 
 - Permission, AudioContext, native AudioWorklet, Dedicated Worker, full pitch pipeline, and main readout paths are covered with deterministic fakes and a production-preview 440 Hz synthetic stream, but no real microphone hardware, OS/browser permission UI, mobile Safari user activation, or 20-minute leak run has been verified.
-- DSP, free/target practice, summaries, reactive history and local persistence are implemented. Offline reopen and real-device lifecycle QA remain outstanding. Unsaved previews and mode/target selection reset on reload; theme/locale/A4 and explicitly saved summaries persist. Storage may be unavailable/evicted by the browser; failures are reported with in-memory practice retained. Input device label is null until exposed by audio metadata. The 30,000-frame test is not a real-time leak run.
+- DSP, free/target practice, summaries, reactive history and local persistence are implemented. Chromium synthetic-input offline reopen/save/delete is verified; real-device lifecycle QA remains outstanding. Unsaved previews and mode/target selection reset on reload; theme/locale/A4 and explicitly saved summaries persist. Storage/cache may be unavailable or evicted by the browser; an uncached first visit requires network. Input device label is null until exposed by audio metadata. The 30,000-frame test is not a real-time leak run.
 - A first 4096-sample window takes about 85 ms at 48 kHz or 93 ms at 44.1 kHz before compute. The 40 ms UI publication interval is below the normal 42.7/46.4 ms hop interval, and full-DSP compute averaged about 1.5 ms in automated benchmarks, but input-to-paint latency has not yet been instrumented on the baseline devices and persistent pitch changes can still incur median/guard confirmation lag.
 - A genuine instantaneous jump needs two additional observations before confirmation, adding about 85 ms at 48 kHz / 2048 hop. Three persistent octave-error frames will also be accepted because temporal evidence cannot distinguish them from a real jump; the seven-semitone threshold and two-semitone candidate cluster require VT-025 voice/device calibration.
 - The initial `minConfidence = 0.9`, 6 dB adaptive margin, and 2000/500 ms rise/fall constants only have deterministic synthetic evidence and require VT-025 voice/device/room calibration. Frames above the fixed -55 dBFS floor but below an elevated adaptive gate still run YIN to preserve recovery correctness, so the adaptive gate is not a guaranteed compute-saving boundary.
 - The one-second window, eight-frame/0.6 evidence gate, 80-cent spread scale, 100 cents/s trend scale, 300 ms onset, and 75/60 stability hysteresis only have deterministic synthetic evidence. They describe engineering feedback, not vocal quality, and require VT-025 real-voice/device/room calibration.
-- PWA manifest generation and the update prompt build are covered, but installability, offline reopen, and update activation remain VT-023/VT-024 acceptance work.
+- PWA manifest generation and Chromium offline workflows are covered. Update activation/safety remains VT-024 work; the current update button is not gated on audio state. Installability and installed mobile PWA/offline behavior remain real-device QA work.
 - The PWA currently uses one SVG icon; platform-specific PNG icon QA remains for the release milestone.
 - Automated browser evidence is Chromium-only on this machine; Safari, Firefox, mobile browsers, and manual visual/accessibility QA remain unverified.
 - The Windows checkout uses CRLF while Biome's current formatter default expects LF, so the full `pnpm check` evidence required temporary line-ending normalization; a repository-wide EOL policy remains to be resolved without mixing mechanical churn into DSP work.
